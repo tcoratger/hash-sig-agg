@@ -1,0 +1,7 @@
+[workspace]
+members = ["keccak256"]
+resolver = "2"
+
+[workspace.dependencies]
+openvm = { git = "https://github.com/openvm-org/openvm.git", features = ["std"] }
+openvm-keccak256-guest = { git = "https://github.com/openvm-org/openvm.git" }

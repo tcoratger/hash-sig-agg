@@ -1,0 +1,8 @@
+[package]
+name = "openvm-keccak256"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openvm = { workspace = true }
+openvm-keccak256-guest = { workspace = true }

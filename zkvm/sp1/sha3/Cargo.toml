@@ -1,0 +1,8 @@
+[package]
+name = "sp1-sha3"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sha3 = { workspace = true }
+sp1-zkvm = { workspace = true }

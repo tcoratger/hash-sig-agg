@@ -4354,6 +4354,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sp1-poseidon2"
+version = "0.1.0"
+dependencies = [
+ "num-bigint 0.4.6",
+ "sp1-zkvm",
+ "zkhash 0.2.0 (git+https://github.com/HorizenLabs/poseidon2?branch=main)",
+]
+
+[[package]]
 name = "sp1-primitives"
 version = "4.0.0-rc.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4510,7 +4519,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "vec_map",
- "zkhash",
+ "zkhash 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -5885,6 +5894,32 @@ name = "zkhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4352d1081da6922701401cdd4cbf29a2723feb4cfabb5771f6fee8e9276da1c7"
+dependencies = [
+ "ark-ff 0.4.2",
+ "ark-std 0.4.0",
+ "bitvec",
+ "blake2",
+ "bls12_381",
+ "byteorder",
+ "cfg-if",
+ "group 0.12.1",
+ "group 0.13.0",
+ "halo2",
+ "hex",
+ "jubjub",
+ "lazy_static",
+ "pasta_curves 0.5.1",
+ "rand",
+ "serde",
+ "sha2",
+ "sha3 0.10.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "subtle",
+]
+
+[[package]]
+name = "zkhash"
+version = "0.2.0"
+source = "git+https://github.com/HorizenLabs/poseidon2?branch=main#055bde3f4782731ba5f5ce5888a440a94327eaf3"
 dependencies = [
  "ark-ff 0.4.2",
  "ark-std 0.4.0",

@@ -1,7 +1,9 @@
 [workspace]
-members = ["keccak256"]
+members = ["keccak256", "poseidon2"]
 resolver = "2"
 
 [workspace.dependencies]
+num-bigint = "0.4.6"
 openvm = { git = "https://github.com/openvm-org/openvm.git", features = ["std"] }
 openvm-keccak256-guest = { git = "https://github.com/openvm-org/openvm.git" }
+zkhash = { git = "https://github.com/HorizenLabs/poseidon2", branch = "main", package = "zkhash" }

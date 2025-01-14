@@ -1,23 +1,28 @@
 //! Verification of [`hash-sig`] keccak instantiation [`SIGTargetSumLifetime20W2NoOff`].
 //!
 //! [`hash-sig`]: https://github.com/b-wagn/hash-sig
-//! [`SIGTargetSumLifetime20W2NoOff`]: https://github.com/b-wagn/hash-sig/blob/ade9f14333123477b4060a6f22da4cf4433a103b/src/signature/generalized_xmss/instantiations_sha.rs#L254-L255
+//! [`SIGTargetSumLifetime20W2NoOff`]: https://github.com/b-wagn/hash-sig/blob/5268d83/src/signature/generalized_xmss/instantiations_sha.rs#L413C18-L414
 
-use core::{
-    array::from_fn,
-    iter::{empty, zip},
-};
+use core::{array::from_fn, iter::zip};
 use sha3::{Digest, Sha3_256};
 
+macro_rules! chain {
+    [$first:expr $(, $rest:expr)* $(,)?] => { $first.into_iter()$(.chain($rest))* };
+}
+
 const LOG_LIFETIME: usize = 20;
-const MSG_LEN: usize = 64;
+const MSG_LEN: usize = 32;
 const PARAM_LEN: usize = 18;
 const RHO_LEN: usize = 23;
 const MSG_HASH_LEN: usize = 18;
 const TH_HASH_LEN: usize = 26;
 const CHUNK_SIZE: usize = 2;
-const NUM_CHUNKS: usize = 8 * MSG_HASH_LEN / CHUNK_SIZE;
-const TARGET_SUM: u32 = 108;
+const NUM_CHUNKS: usize = (8 * MSG_HASH_LEN).div_ceil(CHUNK_SIZE);
+const TARGET_SUM: u16 = 108;
+
+const TH_SEP_MSG: u8 = 0x02;
+const TH_SEP_TREE: u8 = 0x01;
+const TH_SEP_CHAIN: u8 = 0x00;
 
 pub struct VerifierInput {
     param: [u8; PARAM_LEN],
@@ -60,23 +65,17 @@ impl VerifierInput {
     }
 }
 
-pub fn verify(verifier_input: &VerifierInput) -> bool {
-    let chunks: [u8; NUM_CHUNKS] = {
-        let msg_hash = truncated_sha3::<MSG_HASH_LEN>(
-            empty()
-                .chain(verifier_input.rho)
-                .chain(verifier_input.param)
-                .chain([0x02])
-                .chain(verifier_input.epoch.to_le_bytes())
-                .chain(verifier_input.message),
-        );
-        let msg_hash_chunks = bytes_to_chunks::<MSG_HASH_LEN, NUM_CHUNKS>(&msg_hash);
-        if msg_hash_chunks
-            .iter()
-            .map(|chunk| *chunk as u32)
-            .sum::<u32>()
-            != TARGET_SUM
-        {
+pub fn verify(vi: &VerifierInput) -> bool {
+    let chunks: [u16; NUM_CHUNKS] = {
+        let msg_hash = truncated_sha3::<MSG_HASH_LEN>(chain![
+            vi.rho,
+            vi.param,
+            [TH_SEP_MSG],
+            vi.epoch.to_le_bytes(),
+            vi.message,
+        ]);
+        let msg_hash_chunks = hash_to_chunks::<MSG_HASH_LEN, NUM_CHUNKS>(&msg_hash);
+        if msg_hash_chunks.iter().copied().sum::<u16>() != TARGET_SUM {
             return false;
         }
         msg_hash_chunks
@@ -84,44 +83,38 @@ pub fn verify(verifier_input: &VerifierInput) -> bool {
 
     let leaves: [[u8; TH_HASH_LEN]; NUM_CHUNKS] = from_fn(|chain_idx| {
         chain(
-            &verifier_input.param,
-            verifier_input.epoch,
+            &vi.param,
+            vi.epoch,
             chain_idx as _,
-            chunks[chain_idx] as _,
-            verifier_input.chain_witness[chain_idx],
+            chunks[chain_idx],
+            vi.chain_witness[chain_idx],
         )
     });
 
-    merkle_root(
-        &verifier_input.param,
-        verifier_input.epoch,
-        &leaves,
-        &verifier_input.merkle_path,
-    ) == verifier_input.merkle_root
+    merkle_root(&vi.param, vi.epoch, &leaves, &vi.merkle_path) == vi.merkle_root
 }
 
-fn bytes_to_chunks<const N: usize, const M: usize>(bytes: &[u8; N]) -> [u8; M] {
+fn hash_to_chunks<const N: usize, const M: usize>(bytes: &[u8; N]) -> [u16; M] {
     const MASK: u8 = ((1 << CHUNK_SIZE) - 1) as u8;
-    from_fn(|i| (bytes[(i * CHUNK_SIZE) / 8] >> ((i * CHUNK_SIZE) % 8)) & MASK)
+    from_fn(|i| ((bytes[(i * CHUNK_SIZE) / 8] >> ((i * CHUNK_SIZE) % 8)) & MASK) as _)
 }
 
 fn chain(
     parameter: &[u8; PARAM_LEN],
     epoch: u32,
-    chain_idx: u32,
-    offset: u32,
+    chain_idx: u16,
+    offset: u16,
     witness: [u8; TH_HASH_LEN],
 ) -> [u8; TH_HASH_LEN] {
     (offset..(1 << CHUNK_SIZE) - 1).fold(witness, |chain, step| {
-        truncated_sha3::<TH_HASH_LEN>(
-            empty()
-                .chain(*parameter)
-                .chain([0x01])
-                .chain(epoch.to_be_bytes())
-                .chain(chain_idx.to_be_bytes())
-                .chain((step + 1).to_be_bytes())
-                .chain(chain),
-        )
+        truncated_sha3::<TH_HASH_LEN>(chain![
+            *parameter,
+            [TH_SEP_CHAIN],
+            epoch.to_be_bytes(),
+            chain_idx.to_be_bytes(),
+            (step + 1).to_be_bytes(),
+            chain,
+        ])
     })
 }
 
@@ -132,31 +125,27 @@ fn merkle_root(
     siblings: &[[u8; TH_HASH_LEN]; LOG_LIFETIME],
 ) -> [u8; TH_HASH_LEN] {
     zip(1u8.., siblings).fold(
-        truncated_sha3::<TH_HASH_LEN>(
-            empty()
-                .chain(*parameter)
-                .chain([0x00])
-                .chain(0u8.to_be_bytes())
-                .chain(epoch.to_be_bytes())
-                .chain(leaves.iter().flatten().copied()),
-        ),
+        truncated_sha3::<TH_HASH_LEN>(chain![
+            *parameter,
+            [TH_SEP_TREE],
+            [0],
+            epoch.to_be_bytes(),
+            leaves.iter().flatten().copied(),
+        ]),
         |node, (level, sibling)| {
-            truncated_sha3::<TH_HASH_LEN>(
-                empty()
-                    .chain(*parameter)
-                    .chain([0x00])
-                    .chain(level.to_be_bytes())
-                    .chain((epoch >> level).to_be_bytes())
-                    .chain(
-                        (if (epoch >> (level - 1)) & 1 == 0 {
-                            [node, *sibling]
-                        } else {
-                            [*sibling, node]
-                        })
-                        .into_iter()
-                        .flatten(),
-                    ),
-            )
+            truncated_sha3::<TH_HASH_LEN>(chain![
+                *parameter,
+                [TH_SEP_TREE],
+                [level],
+                (epoch >> level).to_be_bytes(),
+                (if (epoch >> (level - 1)) & 1 == 0 {
+                    [node, *sibling]
+                } else {
+                    [*sibling, node]
+                })
+                .into_iter()
+                .flatten(),
+            ])
         },
     )
 }

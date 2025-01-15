@@ -12,8 +12,8 @@
 use core::{array::from_fn, iter::zip};
 use openvm_keccak256_guest::keccak256;
 
-macro_rules! chain {
-    [$first:expr $(, $rest:expr)* $(,)?] => { $first.into_iter()$(.chain($rest))* };
+macro_rules! concat {
+    [$first:expr $(, $rest:expr)* $(,)?] => { $first.into_iter()$(.chain($rest))*.collect::<Vec<_>>().try_into().unwrap() };
 }
 
 const LOG_LIFETIME: usize = 20;
@@ -30,124 +30,133 @@ const TH_SEP_MSG: u8 = 0x02;
 const TH_SEP_TREE: u8 = 0x01;
 const TH_SEP_CHAIN: u8 = 0x00;
 
-pub struct VerifierInput {
-    param: [u8; PARAM_LEN],
+#[derive(Clone, Copy)]
+pub struct PublicKey {
+    parameter: [u8; PARAM_LEN],
     merkle_root: [u8; TH_HASH_LEN],
-    epoch: u32,
-    message: [u8; MSG_LEN],
-    rho: [u8; RHO_LEN],
-    chain_witness: [[u8; TH_HASH_LEN]; NUM_CHUNKS],
-    merkle_path: [[u8; TH_HASH_LEN]; LOG_LIFETIME],
 }
 
-impl VerifierInput {
-    pub const SIZE: usize = {
-        PARAM_LEN
-            + TH_HASH_LEN
-            + size_of::<u32>()
-            + MSG_LEN
-            + RHO_LEN
-            + TH_HASH_LEN * NUM_CHUNKS
-            + TH_HASH_LEN * LOG_LIFETIME
-    };
+impl PublicKey {
+    pub const SIZE: usize = PARAM_LEN + TH_HASH_LEN;
 
-    pub fn from_bytes(bytes: &[u8]) -> Vec<Self> {
-        assert_eq!(bytes.len() % Self::SIZE, 0);
-        bytes
-            .chunks_exact(Self::SIZE)
-            .map(|bytes| {
-                let mut bytes = bytes.iter().copied();
-                Self {
-                    param: from_fn(|_| bytes.next().unwrap()),
-                    merkle_root: from_fn(|_| bytes.next().unwrap()),
-                    epoch: u32::from_le_bytes(from_fn(|_| bytes.next().unwrap())),
-                    message: from_fn(|_| bytes.next().unwrap()),
-                    rho: from_fn(|_| bytes.next().unwrap()),
-                    chain_witness: from_fn(|_| from_fn(|_| bytes.next().unwrap())),
-                    merkle_path: from_fn(|_| from_fn(|_| bytes.next().unwrap())),
-                }
-            })
-            .collect()
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert_eq!(bytes.len(), Self::SIZE);
+        let mut bytes = bytes.iter().copied();
+        Self {
+            parameter: from_fn(|_| bytes.next().unwrap()),
+            merkle_root: from_fn(|_| bytes.next().unwrap()),
+        }
     }
 }
 
-pub fn verify(vi: &VerifierInput) -> bool {
-    let chunks: [u16; NUM_CHUNKS] = {
-        let msg_hash = truncated_keccak256::<MSG_HASH_LEN>(chain![
-            vi.rho,
-            vi.param,
-            [TH_SEP_MSG],
-            vi.epoch.to_le_bytes(),
-            vi.message,
-        ]);
-        let msg_hash_chunks = hash_to_chunks::<MSG_HASH_LEN, NUM_CHUNKS>(&msg_hash);
-        if msg_hash_chunks.iter().copied().sum::<u16>() != TARGET_SUM {
-            return false;
-        }
-        msg_hash_chunks
-    };
-
-    let leaves: [[u8; TH_HASH_LEN]; NUM_CHUNKS] = from_fn(|chain_idx| {
-        chain(
-            &vi.param,
-            vi.epoch,
-            chain_idx as _,
-            chunks[chain_idx],
-            vi.chain_witness[chain_idx],
-        )
-    });
-
-    merkle_root(&vi.param, vi.epoch, &leaves, &vi.merkle_path) == vi.merkle_root
+#[derive(Clone, Copy)]
+pub struct Signature {
+    rho: [u8; RHO_LEN],
+    one_time_sig: [[u8; TH_HASH_LEN]; NUM_CHUNKS],
+    merkle_siblings: [[u8; TH_HASH_LEN]; LOG_LIFETIME],
 }
 
-fn hash_to_chunks<const N: usize, const M: usize>(bytes: &[u8; N]) -> [u16; M] {
+impl Signature {
+    pub const SIZE: usize = RHO_LEN + TH_HASH_LEN * NUM_CHUNKS + TH_HASH_LEN * LOG_LIFETIME;
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert_eq!(bytes.len(), Self::SIZE);
+        let mut bytes = bytes.iter().copied();
+        Self {
+            rho: from_fn(|_| bytes.next().unwrap()),
+            one_time_sig: from_fn(|_| from_fn(|_| bytes.next().unwrap())),
+            merkle_siblings: from_fn(|_| from_fn(|_| bytes.next().unwrap())),
+        }
+    }
+}
+
+pub fn from_bytes(bytes: &[u8]) -> (u32, [u8; MSG_LEN], Vec<(PublicKey, Signature)>) {
+    let mut bytes = bytes.iter();
+    let epoch = u32::from_le_bytes(from_fn(|_| *bytes.next().unwrap()));
+    let msg = from_fn(|_| *bytes.next().unwrap());
+    let pairs = bytes
+        .as_slice()
+        .chunks(PublicKey::SIZE + Signature::SIZE)
+        .map(|bytes| {
+            (
+                PublicKey::from_bytes(&bytes[..PublicKey::SIZE]),
+                Signature::from_bytes(&bytes[PublicKey::SIZE..]),
+            )
+        })
+        .collect();
+    (epoch, msg, pairs)
+}
+
+pub fn verify(epoch: u32, msg: [u8; MSG_LEN], pk: PublicKey, sig: Signature) -> bool {
+    let x: [u16; NUM_CHUNKS] = {
+        let msg_hash = truncated_keccak256::<78, MSG_HASH_LEN>(concat![
+            sig.rho,
+            pk.parameter,
+            [TH_SEP_MSG],
+            epoch.to_le_bytes(),
+            msg,
+        ]);
+        msg_hash_to_chunks(msg_hash)
+    };
+
+    if x.iter().copied().sum::<u16>() != TARGET_SUM {
+        return false;
+    }
+
+    let one_time_pk: [[u8; TH_HASH_LEN]; NUM_CHUNKS] =
+        from_fn(|i| chain(epoch, pk.parameter, i as _, x[i], sig.one_time_sig[i]));
+
+    merkle_root(epoch, pk.parameter, one_time_pk, sig.merkle_siblings) == pk.merkle_root
+}
+
+fn msg_hash_to_chunks(bytes: [u8; MSG_HASH_LEN]) -> [u16; NUM_CHUNKS] {
     const MASK: u8 = ((1 << CHUNK_SIZE) - 1) as u8;
     from_fn(|i| ((bytes[(i * CHUNK_SIZE) / 8] >> ((i * CHUNK_SIZE) % 8)) & MASK) as _)
 }
 
 fn chain(
-    parameter: &[u8; PARAM_LEN],
     epoch: u32,
-    chain_idx: u16,
-    offset: u16,
-    witness: [u8; TH_HASH_LEN],
+    parameter: [u8; PARAM_LEN],
+    i: u16,
+    x_i: u16,
+    one_time_sig_i: [u8; TH_HASH_LEN],
 ) -> [u8; TH_HASH_LEN] {
-    (offset..(1 << CHUNK_SIZE) - 1).fold(witness, |chain, step| {
-        truncated_keccak256::<TH_HASH_LEN>(chain![
-            *parameter,
+    (x_i..(1 << CHUNK_SIZE) - 1).fold(one_time_sig_i, |value, step| {
+        truncated_keccak256::<53, TH_HASH_LEN>(concat![
+            parameter,
             [TH_SEP_CHAIN],
             epoch.to_be_bytes(),
-            chain_idx.to_be_bytes(),
+            i.to_be_bytes(),
             (step + 1).to_be_bytes(),
-            chain,
+            value,
         ])
     })
 }
 
 fn merkle_root(
-    parameter: &[u8; PARAM_LEN],
     epoch: u32,
-    leaves: &[[u8; TH_HASH_LEN]; NUM_CHUNKS],
-    siblings: &[[u8; TH_HASH_LEN]; LOG_LIFETIME],
+    parameter: [u8; PARAM_LEN],
+    one_time_pk: [[u8; TH_HASH_LEN]; NUM_CHUNKS],
+    siblings: [[u8; TH_HASH_LEN]; LOG_LIFETIME],
 ) -> [u8; TH_HASH_LEN] {
     zip(1u8.., siblings).fold(
-        truncated_keccak256::<TH_HASH_LEN>(chain![
-            *parameter,
+        truncated_keccak256::<1896, TH_HASH_LEN>(concat![
+            parameter,
             [TH_SEP_TREE],
             [0],
             epoch.to_be_bytes(),
-            leaves.iter().flatten().copied(),
+            one_time_pk.into_iter().flatten(),
         ]),
         |node, (level, sibling)| {
-            truncated_keccak256::<TH_HASH_LEN>(chain![
-                *parameter,
+            truncated_keccak256::<76, TH_HASH_LEN>(concat![
+                parameter,
                 [TH_SEP_TREE],
                 [level],
                 (epoch >> level).to_be_bytes(),
                 (if (epoch >> (level - 1)) & 1 == 0 {
-                    [node, *sibling]
+                    [node, sibling]
                 } else {
-                    [*sibling, node]
+                    [sibling, node]
                 })
                 .into_iter()
                 .flatten(),
@@ -156,7 +165,7 @@ fn merkle_root(
     )
 }
 
-fn truncated_keccak256<const N: usize>(inputs: impl Iterator<Item = u8>) -> [u8; N] {
-    let output = keccak256(&inputs.collect::<Vec<_>>());
+fn truncated_keccak256<const I: usize, const O: usize>(input: [u8; I]) -> [u8; O] {
+    let output = keccak256(&input);
     from_fn(|i| output[i])
 }

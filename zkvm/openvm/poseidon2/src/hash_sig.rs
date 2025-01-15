@@ -3,11 +3,7 @@
 //! [`hash-sig`]: https://github.com/b-wagn/hash-sig
 //! [`SIGTargetSumLifetime20W2NoOff`]: https://github.com/b-wagn/hash-sig/blob/5268d83/src/signature/generalized_xmss/instantiations_poseidon.rs#L678-L679
 
-use core::{
-    array::from_fn,
-    iter::{repeat, zip},
-    marker::PhantomData,
-};
+use core::{array::from_fn, iter::zip, marker::PhantomData};
 use num_bigint::BigUint;
 use zkhash::{
     ark_ff::{BigInt, Fp, PrimeField},
@@ -18,11 +14,12 @@ use zkhash::{
     },
 };
 
-macro_rules! chain {
-    [$first:expr $(, $rest:expr)* $(,)?] => { $first.into_iter()$(.chain($rest))* };
+macro_rules! concat {
+    [$first:expr $(, $rest:expr)* $(,)?] => { $first.into_iter()$(.chain($rest))*.collect::<Vec<_>>().try_into().unwrap() };
 }
 
 type F = FpBabyBear;
+const MODULUS: u32 = F::MODULUS.0[0] as u32;
 
 const LOG_LIFETIME: usize = 20;
 const MSG_LEN: usize = 32;
@@ -53,130 +50,140 @@ const CAPACITY_VALUES: [F; CAPACITY] = [
     f_from_mont(249749907),
 ];
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct VerifierInput {
-    param: [F; PARAM_FE_LEN],
+#[derive(Clone, Copy)]
+pub struct PublicKey {
+    parameter: [F; PARAM_FE_LEN],
     merkle_root: [F; TH_HASH_FE_LEN],
-    epoch: u32,
-    message: [u8; MSG_LEN],
-    rho: [F; RHO_FE_LEN],
-    chain_witness: [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
-    merkle_path: [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
 }
 
-impl VerifierInput {
-    pub const SIZE: usize = {
-        4 * PARAM_FE_LEN
-            + 4 * TH_HASH_FE_LEN
-            + size_of::<u32>()
-            + MSG_LEN
-            + 4 * RHO_FE_LEN
-            + 4 * TH_HASH_FE_LEN * NUM_CHUNKS
-            + 4 * TH_HASH_FE_LEN * LOG_LIFETIME
-    };
+impl PublicKey {
+    const SIZE: usize = 4 * (PARAM_FE_LEN + TH_HASH_FE_LEN);
 
-    pub fn from_bytes(bytes: &[u8]) -> Vec<Self> {
-        assert_eq!(bytes.len() % Self::SIZE, 0);
-        bytes
-            .chunks(Self::SIZE)
-            .map(|bytes| {
-                let bytes = &mut bytes.iter().copied();
-                let verifier_input = Self {
-                    param: fs_from_bytes(bytes),
-                    merkle_root: fs_from_bytes(bytes),
-                    epoch: u32::from_le_bytes(from_fn(|_| bytes.next().unwrap())),
-                    message: from_fn(|_| bytes.next().unwrap()),
-                    rho: fs_from_bytes(bytes),
-                    chain_witness: from_fn(|_| fs_from_bytes(bytes)),
-                    merkle_path: from_fn(|_| fs_from_bytes(bytes)),
-                };
-                assert!(bytes.next().is_none());
-                verifier_input
-            })
-            .collect()
+    fn from_bytes(bytes: &[u8]) -> Self {
+        assert_eq!(bytes.len(), Self::SIZE);
+        let bytes = &mut bytes.iter().copied();
+        Self {
+            parameter: fs_from_bytes(bytes),
+            merkle_root: fs_from_bytes(bytes),
+        }
     }
 }
 
-pub fn verify(vi: &VerifierInput) -> bool {
-    let chunks: [u16; NUM_CHUNKS] = {
-        let msg_hash = poseidon2_compress::<24, MSG_HASH_FE_LEN>(chain![
-            vi.rho,
-            decompose::<TWEAK_FE_LEN>(shl(vi.epoch, 8) + TH_SEP_MSG),
-            decompose::<MSG_FE_LEN>(BigUint::from_bytes_le(&vi.message)),
-            vi.param,
-        ]);
-        let msg_hash_chunks = hash_to_chunks::<MSG_HASH_FE_LEN, NUM_CHUNKS>(&msg_hash);
-        if msg_hash_chunks.iter().copied().sum::<u16>() != TARGET_SUM {
-            return false;
-        }
-        msg_hash_chunks
-    };
-
-    let leaves: [[F; TH_HASH_FE_LEN]; NUM_CHUNKS] = from_fn(|chain_idx| {
-        chain(
-            &vi.param,
-            vi.epoch,
-            chain_idx as _,
-            chunks[chain_idx],
-            vi.chain_witness[chain_idx],
-        )
-    });
-
-    merkle_root(&vi.param, vi.epoch, &leaves, &vi.merkle_path) == vi.merkle_root
+#[derive(Clone, Copy)]
+pub struct Signature {
+    rho: [F; RHO_FE_LEN],
+    one_time_sig: [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
+    merkle_siblings: [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
 }
 
-fn hash_to_chunks<const N: usize, const M: usize>(hash: &[F; N]) -> [u16; M] {
-    let big = hash.iter().fold(BigUint::ZERO, |acc, item| {
-        acc * BigUint::from(F::MODULUS) + BigUint::from(*item)
-    });
-    let bytes = chain![big.to_bytes_le(), repeat(0)]
-        .take(M * 8 / CHUNK_SIZE)
-        .collect::<Vec<_>>();
+impl Signature {
+    const SIZE: usize =
+        4 * (RHO_FE_LEN + TH_HASH_FE_LEN * NUM_CHUNKS + TH_HASH_FE_LEN * LOG_LIFETIME);
+
+    fn from_bytes(bytes: &[u8]) -> Self {
+        assert_eq!(bytes.len(), Self::SIZE);
+        let bytes = &mut bytes.iter().copied();
+        Self {
+            rho: fs_from_bytes(bytes),
+            one_time_sig: from_fn(|_| fs_from_bytes(bytes)),
+            merkle_siblings: from_fn(|_| fs_from_bytes(bytes)),
+        }
+    }
+}
+
+pub fn from_bytes(bytes: &[u8]) -> (u32, [u8; MSG_LEN], Vec<(PublicKey, Signature)>) {
+    let mut bytes = bytes.iter();
+    let epoch = u32::from_le_bytes(from_fn(|_| *bytes.next().unwrap()));
+    let msg = from_fn(|_| *bytes.next().unwrap());
+    let pairs = bytes
+        .as_slice()
+        .chunks(PublicKey::SIZE + Signature::SIZE)
+        .map(|bytes| {
+            (
+                PublicKey::from_bytes(&bytes[..PublicKey::SIZE]),
+                Signature::from_bytes(&bytes[PublicKey::SIZE..]),
+            )
+        })
+        .collect();
+    (epoch, msg, pairs)
+}
+
+pub fn verify(epoch: u32, msg: [u8; MSG_LEN], pk: PublicKey, sig: Signature) -> bool {
+    let x: [u16; NUM_CHUNKS] = {
+        let msg_hash = poseidon2_compress::<24, 22, MSG_HASH_FE_LEN>(concat![
+            sig.rho,
+            decompose::<TWEAK_FE_LEN>(shl(epoch, 8) + TH_SEP_MSG),
+            decompose::<MSG_FE_LEN>(BigUint::from_bytes_le(&msg)),
+            pk.parameter,
+        ]);
+        msg_hash_to_chunks(msg_hash)
+    };
+
+    if x.iter().copied().sum::<u16>() != TARGET_SUM {
+        return false;
+    }
+
+    let one_time_pk: [[F; TH_HASH_FE_LEN]; NUM_CHUNKS] =
+        from_fn(|i| chain(epoch, pk.parameter, i as _, x[i], sig.one_time_sig[i]));
+
+    merkle_root(epoch, pk.parameter, one_time_pk, sig.merkle_siblings) == pk.merkle_root
+}
+
+fn msg_hash_to_chunks(hash: [F; MSG_HASH_FE_LEN]) -> [u16; NUM_CHUNKS] {
     const MASK: u8 = ((1 << CHUNK_SIZE) - 1) as u8;
-    from_fn(|i| (bytes[(i * CHUNK_SIZE) / 8] >> ((i * CHUNK_SIZE) % 8) & MASK) as _)
+    let bytes = hash
+        .into_iter()
+        .fold(BigUint::ZERO, |acc, v| acc * MODULUS + v.into_bigint().0[0])
+        .to_bytes_le();
+    from_fn(|i| {
+        bytes
+            .get((i * CHUNK_SIZE) / 8)
+            .map(|byte| ((byte >> ((i * CHUNK_SIZE) % 8)) & MASK))
+            .unwrap_or(0) as u16
+    })
 }
 
 fn chain(
-    parameter: &[F; PARAM_FE_LEN],
     epoch: u32,
-    chain_idx: u16,
-    offset: u16,
-    witness: [F; TH_HASH_FE_LEN],
+    parameter: [F; PARAM_FE_LEN],
+    i: u16,
+    x_i: u16,
+    one_time_sig_i: [F; TH_HASH_FE_LEN],
 ) -> [F; TH_HASH_FE_LEN] {
-    (offset..(1 << CHUNK_SIZE) - 1).fold(witness, |chain, step| {
-        poseidon2_compress::<16, TH_HASH_FE_LEN>(chain![
-            *parameter,
+    (x_i..(1 << CHUNK_SIZE) - 1).fold(one_time_sig_i, |value, step| {
+        poseidon2_compress::<16, 14, TH_HASH_FE_LEN>(concat![
+            parameter,
             decompose::<TWEAK_FE_LEN>(
-                shl(epoch, 40) + shl(chain_idx, 24) + shl(step + 1, 8) + TH_SEP_CHAIN
+                shl(epoch, 40) + shl(i, 24) + shl(step + 1, 8) + TH_SEP_CHAIN
             ),
-            chain
+            value
         ])
     })
 }
 
 fn merkle_root(
-    parameter: &[F; PARAM_FE_LEN],
     epoch: u32,
-    leaves: &[[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
-    siblings: &[[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
+    parameter: [F; PARAM_FE_LEN],
+    one_time_pk: [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
+    siblings: [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
 ) -> [F; TH_HASH_FE_LEN] {
     zip(1u32.., siblings).fold(
-        poseidon2_sponge(
+        poseidon2_sponge::<553>(
             CAPACITY_VALUES,
-            chain![
-                *parameter,
+            concat![
+                parameter,
                 decompose::<TWEAK_FE_LEN>(shl(0u32, 40) + shl(epoch, 8) + TH_SEP_TREE),
-                leaves.iter().flatten().copied(),
+                one_time_pk.into_iter().flatten(),
             ],
         ),
         |node, (level, sibling)| {
-            poseidon2_compress::<24, TH_HASH_FE_LEN>(chain![
-                *parameter,
+            poseidon2_compress::<24, 21, TH_HASH_FE_LEN>(concat![
+                parameter,
                 decompose::<TWEAK_FE_LEN>(shl(level, 40) + shl(epoch >> level, 8) + TH_SEP_TREE),
                 (if (epoch >> (level - 1)) & 1 == 0 {
-                    [node, *sibling]
+                    [node, sibling]
                 } else {
-                    [*sibling, node]
+                    [sibling, node]
                 })
                 .into_iter()
                 .flatten()
@@ -185,41 +192,35 @@ fn merkle_root(
     )
 }
 
-fn poseidon2_sponge(
-    capacity: [F; CAPACITY],
-    inputs: impl IntoIterator<Item = F>,
-) -> [F; TH_HASH_FE_LEN] {
+fn poseidon2_sponge<const I: usize>(capacity: [F; CAPACITY], input: [F; I]) -> [F; TH_HASH_FE_LEN] {
     const RATE: usize = 24 - CAPACITY;
-    let inputs = inputs.into_iter().collect::<Vec<_>>();
     let mut state = from_fn(|i| i.checked_sub(RATE).map(|i| capacity[i]).unwrap_or_default());
-    inputs.chunks(RATE).for_each(|block| {
+    input.chunks(RATE).for_each(|block| {
         zip(&mut state, block).for_each(|(state, block)| *state += block);
         state = poseidon2_permutation::<24>(state);
     });
     from_fn(|i| state[i])
 }
 
-fn poseidon2_compress<const T: usize, const N: usize>(
-    inputs: impl IntoIterator<Item = F>,
-) -> [F; N] {
-    let inputs = inputs.into_iter().collect::<Vec<_>>();
-    let padded = from_fn(|i| inputs.get(i).copied().unwrap_or_default());
-    let outputs = poseidon2_permutation::<T>(padded);
-    from_fn(|i| inputs[i] + outputs[i])
+fn poseidon2_compress<const T: usize, const I: usize, const O: usize>(input: [F; I]) -> [F; O] {
+    const { assert!(I >= O && I <= T) };
+    let padded = from_fn(|i| input.get(i).copied().unwrap_or_default());
+    let output = poseidon2_permutation::<T>(padded);
+    from_fn(|i| input[i] + output[i])
 }
 
-// TODO: Use extension when ready
+// TODO: Use extension if it's available.
 fn poseidon2_permutation<const T: usize>(state: [F; T]) -> [F; T] {
     let poseidon2 = match T {
         16 => Poseidon2::new(&POSEIDON2_BABYBEAR_16_PARAMS),
         24 => Poseidon2::new(&POSEIDON2_BABYBEAR_24_PARAMS),
         _ => unreachable!(),
     };
-    let permuted = poseidon2.permutation(&state);
-    from_fn(|i| permuted[i])
+    poseidon2.permutation(&state).try_into().unwrap()
 }
 
 const fn f_from_mont(v: u32) -> F {
+    assert!(v < MODULUS);
     Fp(BigInt::new([v as u64]), PhantomData)
 }
 

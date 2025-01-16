@@ -14,10 +14,6 @@ use zkhash::{
     },
 };
 
-macro_rules! concat {
-    [$first:expr $(, $rest:expr)* $(,)?] => { $first.into_iter()$(.chain($rest))*.collect::<Vec<_>>().try_into().unwrap() };
-}
-
 type F = FpBabyBear;
 const MODULUS: u32 = F::MODULUS.0[0] as u32;
 
@@ -32,10 +28,6 @@ const TWEAK_FE_LEN: usize = 2;
 const CHUNK_SIZE: usize = 2;
 const NUM_CHUNKS: usize = (31 * MSG_HASH_FE_LEN).div_ceil(CHUNK_SIZE);
 const TARGET_SUM: u16 = 117;
-
-const TH_SEP_MSG: u8 = 0x02;
-const TH_SEP_TREE: u8 = 0x01;
-const TH_SEP_CHAIN: u8 = 0x00;
 
 const CAPACITY: usize = 9;
 const CAPACITY_VALUES: [F; CAPACITY] = [
@@ -112,8 +104,8 @@ pub fn verify(epoch: u32, msg: [u8; MSG_LEN], pk: PublicKey, sig: Signature) -> 
     let x: [u16; NUM_CHUNKS] = {
         let msg_hash = poseidon2_compress::<24, 22, MSG_HASH_FE_LEN>(concat![
             sig.rho,
-            decompose::<TWEAK_FE_LEN>(shl(epoch, 8) + TH_SEP_MSG),
-            decompose::<MSG_FE_LEN>(BigUint::from_bytes_le(&msg)),
+            encode_tweak_msg(epoch),
+            encode_msg(msg),
             pk.parameter,
         ]);
         msg_hash_to_chunks(msg_hash)
@@ -129,6 +121,72 @@ pub fn verify(epoch: u32, msg: [u8; MSG_LEN], pk: PublicKey, sig: Signature) -> 
     merkle_root(epoch, pk.parameter, one_time_pk, sig.merkle_siblings) == pk.merkle_root
 }
 
+fn chain(
+    epoch: u32,
+    parameter: [F; PARAM_FE_LEN],
+    i: u16,
+    x_i: u16,
+    one_time_sig_i: [F; TH_HASH_FE_LEN],
+) -> [F; TH_HASH_FE_LEN] {
+    (x_i..(1 << CHUNK_SIZE) - 1).fold(one_time_sig_i, |value, step| {
+        poseidon2_compress::<16, 14, TH_HASH_FE_LEN>(concat![
+            parameter,
+            encode_tweak_chain(epoch, i, step + 1),
+            value
+        ])
+    })
+}
+
+fn merkle_root(
+    epoch: u32,
+    parameter: [F; PARAM_FE_LEN],
+    one_time_pk: [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
+    siblings: [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
+) -> [F; TH_HASH_FE_LEN] {
+    zip(1u8.., siblings).fold(
+        poseidon2_sponge::<553>(
+            CAPACITY_VALUES,
+            concat![
+                parameter,
+                encode_tweak_merkle_tree(0, epoch),
+                one_time_pk.into_iter().flatten(),
+            ],
+        ),
+        |node, (level, sibling)| {
+            poseidon2_compress::<24, 21, TH_HASH_FE_LEN>(concat![
+                parameter,
+                encode_tweak_merkle_tree(level, epoch >> level),
+                (if (epoch >> (level - 1)) & 1 == 0 {
+                    [node, sibling]
+                } else {
+                    [sibling, node]
+                })
+                .into_iter()
+                .flatten()
+            ])
+        },
+    )
+}
+
+fn encode_msg(msg: [u8; MSG_LEN]) -> [F; MSG_FE_LEN] {
+    decompose(BigUint::from_bytes_le(&msg))
+}
+
+fn encode_tweak_chain(epoch: u32, i: u16, k: u16) -> [F; TWEAK_FE_LEN] {
+    const SEP: u64 = 0x00;
+    decompose(((epoch as u64) << 40) | ((i as u64) << 24) | ((k as u64) << 8) | SEP)
+}
+
+fn encode_tweak_merkle_tree(l: u8, i: u32) -> [F; TWEAK_FE_LEN] {
+    const SEP: u64 = 0x01;
+    decompose(((l as u64) << 40) | ((i as u64) << 8) | SEP)
+}
+
+fn encode_tweak_msg(epoch: u32) -> [F; TWEAK_FE_LEN] {
+    const SEP: u64 = 0x02;
+    decompose(((epoch as u64) << 8) | SEP)
+}
+
 fn msg_hash_to_chunks(hash: [F; MSG_HASH_FE_LEN]) -> [u16; NUM_CHUNKS] {
     const MASK: u8 = ((1 << CHUNK_SIZE) - 1) as u8;
     let bytes = hash
@@ -141,55 +199,6 @@ fn msg_hash_to_chunks(hash: [F; MSG_HASH_FE_LEN]) -> [u16; NUM_CHUNKS] {
             .map(|byte| ((byte >> ((i * CHUNK_SIZE) % 8)) & MASK))
             .unwrap_or(0) as u16
     })
-}
-
-fn chain(
-    epoch: u32,
-    parameter: [F; PARAM_FE_LEN],
-    i: u16,
-    x_i: u16,
-    one_time_sig_i: [F; TH_HASH_FE_LEN],
-) -> [F; TH_HASH_FE_LEN] {
-    (x_i..(1 << CHUNK_SIZE) - 1).fold(one_time_sig_i, |value, step| {
-        poseidon2_compress::<16, 14, TH_HASH_FE_LEN>(concat![
-            parameter,
-            decompose::<TWEAK_FE_LEN>(
-                shl(epoch, 40) + shl(i, 24) + shl(step + 1, 8) + TH_SEP_CHAIN
-            ),
-            value
-        ])
-    })
-}
-
-fn merkle_root(
-    epoch: u32,
-    parameter: [F; PARAM_FE_LEN],
-    one_time_pk: [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
-    siblings: [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
-) -> [F; TH_HASH_FE_LEN] {
-    zip(1u32.., siblings).fold(
-        poseidon2_sponge::<553>(
-            CAPACITY_VALUES,
-            concat![
-                parameter,
-                decompose::<TWEAK_FE_LEN>(shl(0u32, 40) + shl(epoch, 8) + TH_SEP_TREE),
-                one_time_pk.into_iter().flatten(),
-            ],
-        ),
-        |node, (level, sibling)| {
-            poseidon2_compress::<24, 21, TH_HASH_FE_LEN>(concat![
-                parameter,
-                decompose::<TWEAK_FE_LEN>(shl(level, 40) + shl(epoch >> level, 8) + TH_SEP_TREE),
-                (if (epoch >> (level - 1)) & 1 == 0 {
-                    [node, sibling]
-                } else {
-                    [sibling, node]
-                })
-                .into_iter()
-                .flatten()
-            ])
-        },
-    )
 }
 
 fn poseidon2_sponge<const I: usize>(capacity: [F; CAPACITY], input: [F; I]) -> [F; TH_HASH_FE_LEN] {
@@ -219,20 +228,6 @@ fn poseidon2_permutation<const T: usize>(state: [F; T]) -> [F; T] {
     poseidon2.permutation(&state).try_into().unwrap()
 }
 
-const fn f_from_mont(v: u32) -> F {
-    assert!(v < MODULUS);
-    Fp(BigInt::new([v as u64]), PhantomData)
-}
-
-fn fs_from_bytes<const N: usize>(bytes: &mut impl Iterator<Item = u8>) -> [F; N] {
-    let f_from_u32 = |v| F::from_bigint(BigInt([v as _])).unwrap();
-    from_fn(|_| f_from_u32(u32::from_le_bytes(from_fn(|_| bytes.next().unwrap()))))
-}
-
-fn shl(v: impl Into<BigUint>, shift: usize) -> BigUint {
-    v.into() << shift
-}
-
 fn decompose<const N: usize>(big: impl Into<BigUint>) -> [F; N] {
     let mut big = big.into();
     from_fn(|_| {
@@ -241,3 +236,21 @@ fn decompose<const N: usize>(big: impl Into<BigUint>) -> [F; N] {
         F::from(rem)
     })
 }
+
+fn fs_from_bytes<const N: usize>(bytes: &mut impl Iterator<Item = u8>) -> [F; N] {
+    let f_from_u32 = |v| F::from_bigint(BigInt([v as _])).unwrap();
+    from_fn(|_| f_from_u32(u32::from_le_bytes(from_fn(|_| bytes.next().unwrap()))))
+}
+
+const fn f_from_mont(v: u32) -> F {
+    assert!(v < MODULUS);
+    Fp(BigInt::new([v as u64]), PhantomData)
+}
+
+macro_rules! concat {
+    [$first:expr $(, $rest:expr)* $(,)?] => {
+        $first.into_iter()$(.chain($rest))*.collect::<Vec<_>>().try_into().unwrap()
+    };
+}
+
+use concat;

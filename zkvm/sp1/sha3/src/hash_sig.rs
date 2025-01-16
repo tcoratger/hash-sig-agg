@@ -5,11 +5,6 @@
 
 use core::{array::from_fn, iter::zip};
 use sha3::{Digest, Sha3_256};
-
-macro_rules! concat {
-    [$first:expr $(, $rest:expr)* $(,)?] => { $first.into_iter()$(.chain($rest))*.collect::<Vec<_>>().try_into().unwrap() };
-}
-
 const LOG_LIFETIME: usize = 20;
 const MSG_LEN: usize = 32;
 const PARAM_LEN: usize = 18;
@@ -19,10 +14,6 @@ const TH_HASH_LEN: usize = 26;
 const CHUNK_SIZE: usize = 2;
 const NUM_CHUNKS: usize = (8 * MSG_HASH_LEN).div_ceil(CHUNK_SIZE);
 const TARGET_SUM: u16 = 108;
-
-const TH_SEP_MSG: u8 = 0x02;
-const TH_SEP_TREE: u8 = 0x01;
-const TH_SEP_CHAIN: u8 = 0x00;
 
 #[derive(Clone, Copy)]
 pub struct PublicKey {
@@ -86,8 +77,7 @@ pub fn verify(epoch: u32, msg: [u8; MSG_LEN], pk: PublicKey, sig: Signature) -> 
         let msg_hash = truncated_sha3::<78, MSG_HASH_LEN>(concat![
             sig.rho,
             pk.parameter,
-            [TH_SEP_MSG],
-            epoch.to_le_bytes(),
+            encode_tweak_msg(epoch),
             msg,
         ]);
         msg_hash_to_chunks(msg_hash)
@@ -103,11 +93,6 @@ pub fn verify(epoch: u32, msg: [u8; MSG_LEN], pk: PublicKey, sig: Signature) -> 
     merkle_root(epoch, pk.parameter, one_time_pk, sig.merkle_siblings) == pk.merkle_root
 }
 
-fn msg_hash_to_chunks(bytes: [u8; MSG_HASH_LEN]) -> [u16; NUM_CHUNKS] {
-    const MASK: u8 = ((1 << CHUNK_SIZE) - 1) as u8;
-    from_fn(|i| ((bytes[(i * CHUNK_SIZE) / 8] >> ((i * CHUNK_SIZE) % 8)) & MASK) as _)
-}
-
 fn chain(
     epoch: u32,
     parameter: [u8; PARAM_LEN],
@@ -118,10 +103,7 @@ fn chain(
     (x_i..(1 << CHUNK_SIZE) - 1).fold(one_time_sig_i, |value, step| {
         truncated_sha3::<53, TH_HASH_LEN>(concat![
             parameter,
-            [TH_SEP_CHAIN],
-            epoch.to_be_bytes(),
-            i.to_be_bytes(),
-            (step + 1).to_be_bytes(),
+            encode_tweak_chain(epoch, i, step + 1),
             value,
         ])
     })
@@ -136,17 +118,13 @@ fn merkle_root(
     zip(1u8.., siblings).fold(
         truncated_sha3::<1896, TH_HASH_LEN>(concat![
             parameter,
-            [TH_SEP_TREE],
-            [0],
-            epoch.to_be_bytes(),
+            encode_tweak_merkle_tree(0, epoch),
             one_time_pk.into_iter().flatten(),
         ]),
         |node, (level, sibling)| {
             truncated_sha3::<76, TH_HASH_LEN>(concat![
                 parameter,
-                [TH_SEP_TREE],
-                [level],
-                (epoch >> level).to_be_bytes(),
+                encode_tweak_merkle_tree(level, epoch >> level),
                 (if (epoch >> (level - 1)) & 1 == 0 {
                     [node, sibling]
                 } else {
@@ -159,7 +137,35 @@ fn merkle_root(
     )
 }
 
+fn encode_tweak_chain(epoch: u32, i: u16, k: u16) -> [u8; 9] {
+    const SEP: u8 = 0x00;
+    concat![[SEP], epoch.to_be_bytes(), i.to_be_bytes(), k.to_be_bytes()]
+}
+
+fn encode_tweak_merkle_tree(l: u8, i: u32) -> [u8; 6] {
+    const SEP: u8 = 0x01;
+    concat![[SEP, l], i.to_be_bytes()]
+}
+
+fn encode_tweak_msg(epoch: u32) -> [u8; 5] {
+    const SEP: u8 = 0x02;
+    concat![[SEP], epoch.to_le_bytes()]
+}
+
+fn msg_hash_to_chunks(bytes: [u8; MSG_HASH_LEN]) -> [u16; NUM_CHUNKS] {
+    const MASK: u8 = ((1 << CHUNK_SIZE) - 1) as u8;
+    from_fn(|i| ((bytes[(i * CHUNK_SIZE) / 8] >> ((i * CHUNK_SIZE) % 8)) & MASK) as _)
+}
+
 fn truncated_sha3<const I: usize, const O: usize>(input: [u8; I]) -> [u8; O] {
     let output = Sha3_256::digest(input);
     from_fn(|i| output[i])
 }
+
+macro_rules! concat {
+    [$first:expr $(, $rest:expr)* $(,)?] => {
+        $first.into_iter()$(.chain($rest))*.collect::<Vec<_>>().try_into().unwrap()
+    };
+}
+
+use concat;

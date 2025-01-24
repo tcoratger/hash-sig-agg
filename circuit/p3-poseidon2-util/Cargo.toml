@@ -1,5 +1,5 @@
 [package]
-name = "p3-poseidon2-horizon"
+name = "p3-poseidon2-util"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,7 @@ edition = "2021"
 p3-baby-bear = { git = "https://github.com/Plonky3/Plonky3.git" }
 p3-field = { git = "https://github.com/Plonky3/Plonky3.git" }
 p3-poseidon2 = { git = "https://github.com/Plonky3/Plonky3.git" }
+p3-poseidon2-air = { git = "https://github.com/Plonky3/Plonky3.git" }
 
 [dev-dependencies]
 p3-symmetric = { git = "https://github.com/Plonky3/Plonky3.git" }

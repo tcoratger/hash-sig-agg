@@ -1,4 +1,4 @@
-use crate::baby_bear::constant::*;
+use crate::horizon::baby_bear::constant::*;
 use core::{iter::zip, ops::Mul};
 use p3_baby_bear::BabyBear;
 use p3_field::{Field, FieldAlgebra};
@@ -18,37 +18,24 @@ pub type Poseidon2Horizon<const WIDTH: usize> = Poseidon2<
     SBOX_DEGREE,
 >;
 
-pub fn poseidon2_horizon_16() -> Poseidon2Horizon<16> {
+pub fn poseidon2_t16_horizon() -> Poseidon2Horizon<16> {
     Poseidon2::new(
-        ExternalLayerConstants::new(RC16.0.to_vec(), RC16.2.to_vec()),
-        RC16.1.to_vec(),
+        ExternalLayerConstants::new(
+            RC16.beginning_full_round_constants.to_vec(),
+            RC16.ending_full_round_constants.to_vec(),
+        ),
+        RC16.partial_round_constants.to_vec(),
     )
 }
 
-pub fn poseidon2_horizon_24() -> Poseidon2Horizon<24> {
+pub fn poseidon2_t24_horizon() -> Poseidon2Horizon<24> {
     Poseidon2::new(
-        ExternalLayerConstants::new(RC24.0.to_vec(), RC24.2.to_vec()),
-        RC24.1.to_vec(),
+        ExternalLayerConstants::new(
+            RC24.beginning_full_round_constants.to_vec(),
+            RC24.ending_full_round_constants.to_vec(),
+        ),
+        RC24.partial_round_constants.to_vec(),
     )
-}
-
-#[derive(Clone, Debug)]
-pub struct GenericPoseidon2LinearLayersHorizon<const WIDTH: usize>;
-
-impl<FA, const WIDTH: usize> GenericPoseidon2LinearLayers<FA, WIDTH>
-    for GenericPoseidon2LinearLayersHorizon<WIDTH>
-where
-    FA: FieldAlgebra<F = BabyBear> + Mul<BabyBear, Output = FA>,
-{
-    fn internal_linear_layer(state: &mut [FA; WIDTH]) {
-        let sum = state.iter().cloned().sum::<FA>();
-        zip(&mut *state, mat_diag_m_1::<WIDTH>())
-            .for_each(|(state, mat_diag_m_1)| *state = state.clone() * *mat_diag_m_1 + sum.clone());
-    }
-
-    fn external_linear_layer(state: &mut [FA; WIDTH]) {
-        mds_light_permutation(state, &HLMDSMat4)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -114,17 +101,30 @@ impl<const WIDTH: usize> InternalLayer<BabyBear, WIDTH, SBOX_DEGREE>
     }
 }
 
-fn mat_diag_m_1<const WIDTH: usize>() -> &'static [BabyBear] {
-    match WIDTH {
-        16 => &DIAG16[..],
-        24 => &DIAG24[..],
-        _ => unimplemented!(),
+#[derive(Clone, Debug)]
+pub struct GenericPoseidon2LinearLayersHorizon<const WIDTH: usize>;
+
+impl<FA, const WIDTH: usize> GenericPoseidon2LinearLayers<FA, WIDTH>
+    for GenericPoseidon2LinearLayersHorizon<WIDTH>
+where
+    FA: FieldAlgebra<F = BabyBear> + Mul<BabyBear, Output = FA>,
+{
+    fn internal_linear_layer(state: &mut [FA; WIDTH]) {
+        let sum = state.iter().cloned().sum::<FA>();
+        zip(&mut *state, mat_diag_m_1::<WIDTH>())
+            .for_each(|(state, mat_diag_m_1)| *state = state.clone() * *mat_diag_m_1 + sum.clone());
+    }
+
+    fn external_linear_layer(state: &mut [FA; WIDTH]) {
+        mds_light_permutation(state, &HLMDSMat4)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::baby_bear::{poseidon2_horizon_16, poseidon2_horizon_24, Poseidon2Horizon};
+    use crate::horizon::baby_bear::{
+        poseidon2_t16_horizon, poseidon2_t24_horizon, Poseidon2Horizon,
+    };
     use core::array::from_fn;
     use p3_field::FieldAlgebra;
     use p3_symmetric::Permutation;
@@ -158,8 +158,8 @@ mod test {
             }
         }
 
-        check(poseidon2_horizon_16());
-        check(poseidon2_horizon_24());
+        check(poseidon2_t16_horizon());
+        check(poseidon2_t24_horizon());
     }
 
     fn horizon_to_p3<F: FieldAlgebra>(value: FpBabyBear) -> F {

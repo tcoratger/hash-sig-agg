@@ -1,10 +1,7 @@
 use crate::poseidon2::{
     F,
     chip::chain::{air::ChainAir, column::NUM_CHAIN_COLS},
-    concat_array,
-    hash_sig::{
-        NUM_CHUNKS, PublicKey, SPONGE_INPUT_SIZE, TH_HASH_FE_LEN, chain, encode_tweak_merkle_tree,
-    },
+    hash_sig::{NUM_CHUNKS, PublicKey, TH_HASH_FE_LEN},
 };
 use core::any::type_name;
 use generation::{generate_trace_rows, trace_height};
@@ -55,21 +52,6 @@ impl ChainChip {
             air: Default::default(),
             inputs: inputs.into_iter().collect(),
         }
-    }
-
-    pub fn poseidon2_t24_sponge_inputs(&self) -> Vec<[F; SPONGE_INPUT_SIZE]> {
-        self.inputs
-            .iter()
-            .map(move |(pk, one_time_sig, x)| {
-                let leaves = (0..NUM_CHUNKS)
-                    .flat_map(|i| chain(self.epoch, pk.parameter, i as _, x[i], one_time_sig[i]));
-                concat_array![
-                    pk.parameter,
-                    encode_tweak_merkle_tree(0, self.epoch),
-                    leaves
-                ]
-            })
-            .collect()
     }
 }
 

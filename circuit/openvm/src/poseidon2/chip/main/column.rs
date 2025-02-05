@@ -1,6 +1,4 @@
-use crate::poseidon2::hash_sig::{
-    MSG_HASH_FE_LEN, NUM_CHUNKS, PARAM_FE_LEN, RHO_FE_LEN, TH_HASH_FE_LEN,
-};
+use crate::poseidon2::hash_sig::{MSG_HASH_FE_LEN, NUM_CHUNKS, PARAM_FE_LEN, TH_HASH_FE_LEN};
 use core::borrow::{Borrow, BorrowMut};
 
 pub const NUM_MAIN_COLS: usize = size_of::<MainCols<u8>>();
@@ -10,10 +8,7 @@ pub struct MainCols<F> {
     pub is_active: F,
     pub parameter: [F; PARAM_FE_LEN],
     pub merkle_root: [F; TH_HASH_FE_LEN],
-    pub rho: [F; RHO_FE_LEN],
     pub msg_hash: [F; MSG_HASH_FE_LEN],
-    /// Truncaetd part of `msg_hash` for lookup.
-    pub msg_hash_aux: [F; TH_HASH_FE_LEN - MSG_HASH_FE_LEN],
     pub x: [F; NUM_CHUNKS],
 }
 

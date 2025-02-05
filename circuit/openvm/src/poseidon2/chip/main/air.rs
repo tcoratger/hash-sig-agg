@@ -1,13 +1,12 @@
 use crate::poseidon2::{
     F,
     chip::{
-        BUS_CHAIN, BUS_POSEIDON2_T24_COMPRESS,
+        BUS_CHAIN, BUS_MSG_HASH,
         main::column::{MainCols, NUM_MAIN_COLS},
     },
-    hash_sig::{CHUNK_SIZE, MSG_FE_LEN, TARGET_SUM, TWEAK_FE_LEN},
+    hash_sig::{CHUNK_SIZE, TARGET_SUM},
 };
 use core::{
-    array::from_fn,
     borrow::Borrow,
     iter::{self, Sum},
 };
@@ -30,27 +29,21 @@ impl BaseAir<F> for MainAir {
 
 impl PartitionedBaseAir<F> for MainAir {}
 
-impl BaseAirWithPublicValues<F> for MainAir {
-    fn num_public_values(&self) -> usize {
-        TWEAK_FE_LEN + MSG_FE_LEN
-    }
-}
+impl BaseAirWithPublicValues<F> for MainAir {}
 
 impl<AB> Air<AB> for MainAir
 where
     AB: InteractionBuilder<F = F> + AirBuilderWithPublicValues,
 {
     fn eval(&self, builder: &mut AB) {
-        let main = builder.main();
-
-        let encoded_tweak: [_; 2] = from_fn(|i| builder.public_values()[i]);
-        let encoded_msg: [_; 9] = from_fn(|i| builder.public_values()[2 + i]);
-        let local = main.row_slice(0);
-        let local: &MainCols<AB::Var> = (*local).borrow();
-
         // TODO:
         // 1. Decompose `msg_hash` to `x`.
         // 2. Make sure all `x_i` in `x` are in range `0..1 << CHUNK_SIZE`.
+
+        let main = builder.main();
+
+        let local = main.row_slice(0);
+        let local: &MainCols<AB::Var> = (*local).borrow();
 
         builder.assert_eq(
             F::from_canonical_u16(TARGET_SUM),
@@ -58,26 +51,15 @@ where
         );
 
         builder.push_send(
-            BUS_POSEIDON2_T24_COMPRESS,
-            iter::empty()
-                .chain(
-                    iter::empty()
-                        .chain(local.rho.map(Into::into))
-                        .chain(encoded_tweak.map(Into::into))
-                        .chain(encoded_msg.map(Into::into))
-                        .chain(local.parameter.map(Into::into)),
-                )
-                .chain(
-                    iter::empty()
-                        .chain(local.msg_hash.map(Into::into))
-                        .chain(local.msg_hash_aux.map(Into::into)),
-                ),
+            BUS_MSG_HASH,
+            iter::empty().chain(local.parameter).chain(local.msg_hash),
             local.is_active,
         );
         builder.push_send(
             BUS_CHAIN,
             iter::empty()
                 .chain(local.parameter.map(Into::into))
+                .chain(local.merkle_root.map(Into::into))
                 .chain(local.x.chunks(13).map(|x| {
                     x.iter()
                         .copied()

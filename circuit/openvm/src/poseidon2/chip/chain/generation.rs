@@ -6,9 +6,8 @@ use crate::poseidon2::{
     },
     concat_array,
     hash_sig::{
-        CHUNK_SIZE, NUM_CHUNKS, PARAM_FE_LEN, PublicKey, SPONGE_INPUT_SIZE, SPONGE_RATE,
-        TARGET_SUM, TH_HASH_FE_LEN, TWEAK_FE_LEN, chain, encode_tweak_chain,
-        encode_tweak_merkle_tree, poseidon2_sponge,
+        CHUNK_SIZE, NUM_CHUNKS, PARAM_FE_LEN, PublicKey, SPONGE_RATE, TARGET_SUM, TH_HASH_FE_LEN,
+        TWEAK_FE_LEN, encode_tweak_chain, encode_tweak_merkle_tree,
     },
 };
 use core::{array::from_fn, iter::zip};
@@ -86,17 +85,12 @@ pub fn generate_trace_rows(
         .into_par_iter()
         .zip(inputs.into_par_iter().chain(dummys))
         .for_each(|(mut rows, (pk, one_time_sig, x))| {
-            let leaf = poseidon2_sponge::<SPONGE_INPUT_SIZE>({
-                let leaves = (0..NUM_CHUNKS)
-                    .flat_map(|i| chain(epoch, pk.parameter, i as _, x[i], one_time_sig[i]));
-                concat_array![pk.parameter, encode_tweak_merkle_tree(0, epoch), leaves]
-            });
             let mut rows = rows.iter_mut();
             let mut group_acc = [0u32; 6];
-            let mut sponge_block_step = 0;
-            let mut sponge_block_and_buf: [F; SPONGE_RATE + TH_HASH_FE_LEN - 1] =
+            let mut leaf_block_step = 0;
+            let mut leaf_block_and_buf: [F; SPONGE_RATE + TH_HASH_FE_LEN - 1] =
                 concat_array![pk.parameter, encode_tweak_merkle_tree(0, epoch)];
-            let mut sponge_block_ptr = PARAM_FE_LEN + TWEAK_FE_LEN;
+            let mut leaf_block_ptr = PARAM_FE_LEN + TWEAK_FE_LEN;
             zip(0.., zip(one_time_sig, x)).for_each(|(i, (one_time_sig_i, x_i))| {
                 let group_idx = i / 13;
                 let group_step = i % 13;
@@ -130,9 +124,9 @@ pub fn generate_trace_rows(
                         cell.write(F::from_canonical_u32(value));
                     });
                     row.group_step.write(F::from_canonical_u16(group_step));
-                    row.is_group_first_step
+                    row.is_first_group_step
                         .populate(F::from_canonical_u16(group_step));
-                    row.is_group_last_step
+                    row.is_last_group_step
                         .populate(F::from_canonical_u16(group_step), F::from_canonical_u8(12));
                     row.chain_step_bits
                         .iter_mut()
@@ -140,17 +134,14 @@ pub fn generate_trace_rows(
                         .for_each(|(idx, cell)| {
                             cell.write(F::from_bool((chain_step >> idx) & 1 == 1));
                         });
-                    row.is_group_last_row
+                    row.is_last_group_row
                         .write(F::from_bool(is_last_chain_step && is_last_group_step));
-                    row.is_sig_last_row.write(F::from_bool(
+                    row.is_last_sig_row.write(F::from_bool(
                         is_last_chain_step && is_last_group_step && group_idx == 5,
                     ));
                     row.is_active
                         .write(F::from_bool(pk.merkle_root != [F::ZERO; TH_HASH_FE_LEN]));
                     zip(&mut row.merkle_root, pk.merkle_root).for_each(|(cell, value)| {
-                        cell.write(value);
-                    });
-                    zip(&mut row.leaf, leaf).for_each(|(cell, value)| {
                         cell.write(value);
                     });
                     let output = if chain_step == (1 << CHUNK_SIZE) - 1 {
@@ -163,28 +154,28 @@ pub fn generate_trace_rows(
                         })
                     };
                     if is_last_chain_step {
-                        sponge_block_and_buf[sponge_block_ptr..sponge_block_ptr + TH_HASH_FE_LEN]
+                        leaf_block_and_buf[leaf_block_ptr..leaf_block_ptr + TH_HASH_FE_LEN]
                             .copy_from_slice(&output);
-                        sponge_block_ptr = (sponge_block_ptr + TH_HASH_FE_LEN) % SPONGE_RATE;
+                        leaf_block_ptr = (leaf_block_ptr + TH_HASH_FE_LEN) % SPONGE_RATE;
                     }
-                    row.sponge_block_step
-                        .write(F::from_canonical_usize(sponge_block_step));
-                    zip(&mut row.sponge_block_and_buf, sponge_block_and_buf).for_each(
+                    row.leaf_block_step
+                        .write(F::from_canonical_usize(leaf_block_step));
+                    zip(&mut row.leaf_block_and_buf, leaf_block_and_buf).for_each(
                         |(cell, value)| {
                             cell.write(value);
                         },
                     );
-                    row.sponge_block_ptr_ind
+                    row.leaf_block_ptr_ind
                         .iter_mut()
                         .enumerate()
                         .for_each(|(idx, cell)| {
-                            cell.write(F::from_bool(idx == sponge_block_ptr));
+                            cell.write(F::from_bool(idx == leaf_block_ptr));
                         });
-                    if is_last_chain_step && sponge_block_ptr < TH_HASH_FE_LEN {
-                        sponge_block_step += 1;
-                        sponge_block_and_buf
-                            .copy_within(SPONGE_RATE..SPONGE_RATE + sponge_block_ptr, 0);
-                        sponge_block_and_buf[sponge_block_ptr..]
+                    if is_last_chain_step && leaf_block_ptr < TH_HASH_FE_LEN {
+                        leaf_block_step += 1;
+                        leaf_block_and_buf
+                            .copy_within(SPONGE_RATE..SPONGE_RATE + leaf_block_ptr, 0);
+                        leaf_block_and_buf[leaf_block_ptr..]
                             .iter_mut()
                             .for_each(|v| *v = F::ZERO);
                     }

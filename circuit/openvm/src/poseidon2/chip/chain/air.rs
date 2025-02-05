@@ -3,7 +3,7 @@ use crate::{
     poseidon2::{
         F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::{
-            BUS_CHAIN, BUS_MERKLE_TREE, BUS_POSEIDON2_T24_SPONGE,
+            BUS_CHAIN, BUS_MERKLE_TREE,
             chain::{
                 column::{ChainCols, NUM_CHAIN_COLS},
                 poseidon2::{PARTIAL_ROUNDS, WIDTH},
@@ -78,6 +78,9 @@ where
             0..num_cols::<WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>(),
         ));
 
+        // TODO:
+        // 1. Make sure `encoded_tweak_chain` is correct.
+
         let main = builder.main();
 
         let local = main.row_slice(0);
@@ -85,27 +88,22 @@ where
         let local: &ChainCols<AB::Var> = (*local).borrow();
         let next: &ChainCols<AB::Var> = (*next).borrow();
 
-        // TODO:
-        // 1. Make sure `encoded_tweak` is correct.
-        // 2. Schedule poseidon2 sponge invocation and send to poseidon2 sponge bus.
-        // 3. Send to merkle tree opening bus.
-
         // When every rows
 
         local.group_ind.map(|bit| builder.assert_bool(bit));
         builder.assert_one(AB::Expr::sum(local.group_ind.into_iter().map(Into::into)));
         local.chain_step_bits.map(|bit| builder.assert_bool(bit));
-        local.is_group_first_step.eval(builder, local.group_step);
+        local.is_first_group_step.eval(builder, local.group_step);
         local
-            .is_group_last_step
+            .is_last_group_step
             .eval(builder, local.group_step, F::from_canonical_u32(12));
         builder.assert_eq(
-            local.is_group_last_row,
-            local.is_last_chain_step::<AB>() * local.is_group_last_step.output.into(),
+            local.is_last_group_row,
+            local.is_last_chain_step::<AB>() * local.is_last_group_step.output.into(),
         );
         builder.assert_eq(
-            local.is_sig_last_row,
-            local.is_group_last_row * local.group_ind[5],
+            local.is_last_sig_row,
+            local.is_last_group_row * local.group_ind[5],
         );
         builder.assert_bool(local.is_active);
 
@@ -114,9 +112,8 @@ where
             let mut builder = builder.when_first_row();
             builder.assert_one(local.group_ind[0]);
             builder.assert_zero(local.group_step);
-            builder
-                .when_first_row()
-                .assert_eq(local.group_acc[0], local.chain_step::<AB>());
+            builder.assert_eq(local.group_acc[0], local.chain_step::<AB>());
+            builder.assert_zero(local.leaf_block_step);
         }
 
         // When transition
@@ -124,12 +121,12 @@ where
             let mut builder = builder.when_transition();
 
             let is_last_chain_step = local.is_last_chain_step::<AB>();
-            let is_group_last_step = local.is_group_last_step.output.into();
+            let is_last_group_step = local.is_last_group_step.output.into();
             (0..6).for_each(|i| {
                 builder.assert_eq(
                     next.group_ind[i],
                     select(
-                        local.is_group_last_row.into(),
+                        local.is_last_group_row.into(),
                         local.group_ind[i].into(),
                         local.group_ind[i.checked_sub(1).unwrap_or(5)].into(),
                     ),
@@ -141,7 +138,7 @@ where
                     is_last_chain_step.clone(),
                     local.group_step.into(),
                     (local.group_step.into() + AB::Expr::ONE)
-                        - is_group_last_step.clone() * AB::Expr::from_canonical_u32(13),
+                        - is_last_group_step.clone() * AB::Expr::from_canonical_u32(13),
                 ),
             );
             builder.when(not(is_last_chain_step.clone())).assert_eq(
@@ -158,7 +155,7 @@ where
                 builder
                     .when(
                         local.group_ind[i]
-                            * (local.is_last_chain_step::<AB>() - local.is_group_last_row.into()),
+                            * (local.is_last_chain_step::<AB>() - local.is_last_group_row.into()),
                     )
                     .assert_eq(
                         next.group_acc[i],
@@ -170,9 +167,9 @@ where
                     .assert_eq(next.group_acc[i], local.group_acc[i]);
             });
 
-            // When `not(is_last_group * is_group_last_step * is_last_chain_step)`.
+            // When `not(is_last_group * is_last_group_step * is_last_chain_step)`.
             {
-                let mut builder = builder.when(not(local.is_sig_last_row.into()));
+                let mut builder = builder.when(not(local.is_last_sig_row.into()));
 
                 zip(local.parameter(), next.parameter())
                     .for_each(|(a, b)| builder.assert_eq(*a, *b));
@@ -192,31 +189,24 @@ where
             BUS_CHAIN,
             iter::empty()
                 .chain(local.parameter().iter().copied())
+                .chain(local.merkle_root)
                 .chain(local.group_acc),
-            local.is_active.into() * local.is_sig_last_row.into(),
-        );
-        builder.push_send(
-            BUS_POSEIDON2_T24_SPONGE,
-            iter::empty()
-                .chain(local.leaf)
-                .chain([local.sponge_block_step])
-                .chain(local.sponge_block_and_buf[..SPONGE_RATE].iter().copied()),
-            local.is_active
-                * (local.is_last_chain_step::<AB>()
-                    * local.sponge_block_ptr_ind[..TH_HASH_FE_LEN]
-                        .iter()
-                        .copied()
-                        .map(Into::into)
-                        .sum::<AB::Expr>()
-                    + local.is_sig_last_row.into() * local.sponge_block_ptr_ind[13].into()),
+            local.is_active.into() * local.is_last_sig_row.into(),
         );
         builder.push_send(
             BUS_MERKLE_TREE,
             iter::empty()
-                .chain(local.parameter().iter().copied())
-                .chain(local.leaf)
-                .chain(local.merkle_root),
-            local.is_active * local.is_sig_last_row.into(),
+                .chain(local.merkle_root)
+                .chain([local.leaf_block_step])
+                .chain(local.leaf_block_and_buf[..SPONGE_RATE].iter().copied()),
+            local.is_active
+                * (local.is_last_chain_step::<AB>()
+                    * local.leaf_block_ptr_ind[..TH_HASH_FE_LEN]
+                        .iter()
+                        .copied()
+                        .map(Into::into)
+                        .sum::<AB::Expr>()
+                    + local.is_last_sig_row.into() * local.leaf_block_ptr_ind[13].into()),
         );
     }
 }

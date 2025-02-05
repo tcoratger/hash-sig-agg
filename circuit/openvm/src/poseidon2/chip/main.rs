@@ -3,15 +3,12 @@ use crate::poseidon2::{
     chip::main::{air::MainAir, column::NUM_MAIN_COLS},
     concat_array,
     hash_sig::{
-        LOG_LIFETIME, MSG_FE_LEN, MSG_HASH_FE_LEN, MSG_LEN, NUM_CHUNKS, PARAM_FE_LEN, PublicKey,
-        SPONGE_INPUT_SIZE, Signature, TH_HASH_FE_LEN, TWEAK_FE_LEN, encode_msg, encode_tweak_msg,
-        msg_hash_to_chunks, poseidon2_compress, poseidon2_sponge,
+        LOG_LIFETIME, MSG_FE_LEN, MSG_HASH_FE_LEN, MSG_LEN, NUM_CHUNKS, PublicKey,
+        SPONGE_INPUT_SIZE, Signature, TH_HASH_FE_LEN, TWEAK_FE_LEN, chain, encode_msg,
+        encode_tweak_merkle_tree, encode_tweak_msg, msg_hash_to_chunks, poseidon2_compress,
     },
 };
-use core::{
-    any::type_name,
-    iter::{self, zip},
-};
+use core::any::type_name;
 use generation::{generate_trace_rows, trace_height};
 use openvm_stark_backend::{
     Chip, ChipUsageGetter,
@@ -28,6 +25,7 @@ mod generation;
 
 pub struct MainChip {
     extra_capacity_bits: usize,
+    epoch: u32,
     encoded_tweak_msg: [F; TWEAK_FE_LEN],
     encoded_msg: [F; MSG_FE_LEN],
     pairs: Vec<(PublicKey, Signature)>,
@@ -44,13 +42,14 @@ impl MainChip {
         let encoded_msg = encode_msg(msg);
         Self {
             extra_capacity_bits,
+            epoch,
             encoded_tweak_msg,
             encoded_msg,
             pairs,
         }
     }
 
-    pub fn poseidon2_t24_compress(&self) -> impl Iterator<Item = [F; 22]> {
+    pub fn msg_hash_input(&self) -> impl Iterator<Item = [F; 22]> {
         self.pairs.iter().map(move |(pk, sig)| {
             concat_array![
                 sig.rho,
@@ -81,19 +80,33 @@ impl MainChip {
         })
     }
 
-    pub fn merkle_tree_inputs(
+    pub fn merkle_inputs(
         &self,
-        poseidon2_t24_sponge_inputs: &[[F; SPONGE_INPUT_SIZE]],
     ) -> Vec<(
-        [F; PARAM_FE_LEN],
-        [F; TH_HASH_FE_LEN],
+        PublicKey,
+        [F; SPONGE_INPUT_SIZE],
         [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
     )> {
-        zip(&self.pairs, poseidon2_t24_sponge_inputs)
-            .map(move |((pk, sig), poseidon2_t24_sponge_input)| {
-                (
+        self.pairs
+            .iter()
+            .map(move |(pk, sig)| {
+                let msg_hash = poseidon2_compress::<24, 22, MSG_HASH_FE_LEN>(concat_array![
+                    sig.rho,
+                    self.encoded_tweak_msg,
+                    self.encoded_msg,
                     pk.parameter,
-                    poseidon2_sponge(*poseidon2_t24_sponge_input),
+                ]);
+                let x = msg_hash_to_chunks(msg_hash);
+                let leaves = (0..NUM_CHUNKS).flat_map(|i| {
+                    chain(self.epoch, pk.parameter, i as _, x[i], sig.one_time_sig[i])
+                });
+                (
+                    *pk,
+                    concat_array![
+                        pk.parameter,
+                        encode_tweak_merkle_tree(0, self.epoch),
+                        leaves
+                    ],
                     sig.merkle_siblings,
                 )
             })
@@ -134,10 +147,7 @@ where
                     self.encoded_msg,
                     self.pairs,
                 )),
-                public_values: iter::empty()
-                    .chain(self.encoded_tweak_msg)
-                    .chain(self.encoded_msg)
-                    .collect(),
+                public_values: Vec::new(),
             },
         }
     }

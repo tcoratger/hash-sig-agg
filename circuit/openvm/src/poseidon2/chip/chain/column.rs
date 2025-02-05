@@ -28,23 +28,21 @@ pub struct ChainCols<T> {
     /// Chain step in little-endian bits.
     pub chain_step_bits: [T; CHUNK_SIZE],
     /// Whether `group_step == 0`.
-    pub is_group_first_step: IsZeroCols<T>,
+    pub is_first_group_step: IsZeroCols<T>,
     /// Whether `group_step == 12`.
-    pub is_group_last_step: IsEqualCols<T>,
-    /// Equals to `is_group_last_step * is_last_chain_step`.
-    pub is_group_last_row: T,
-    /// Equals to `is_group_last_step * group_ind[5]`.
-    pub is_sig_last_row: T,
+    pub is_last_group_step: IsEqualCols<T>,
+    /// Equals to `is_last_gruop_step * is_last_chain_step`.
+    pub is_last_group_row: T,
+    /// Equals to `is_last_gruop_step * group_ind[5]`.
+    pub is_last_sig_row: T,
     /// Merkle tree root.
     pub merkle_root: [T; TH_HASH_FE_LEN],
-    /// Merkle tree leaf to verify.
-    pub leaf: [T; TH_HASH_FE_LEN],
-    /// Sponge block step.
-    pub sponge_block_step: T,
-    /// Sponge block and overflowing (pre-image block of leaf).
-    pub sponge_block_and_buf: [T; SPONGE_RATE + TH_HASH_FE_LEN - 1],
-    /// Sponge block pointer indicators.
-    pub sponge_block_ptr_ind: [T; SPONGE_RATE],
+    /// Leaf block step.
+    pub leaf_block_step: T,
+    /// Leaf block and overflowing.
+    pub leaf_block_and_buf: [T; SPONGE_RATE + TH_HASH_FE_LEN - 1],
+    /// Leaf block pointer indicators.
+    pub leaf_block_ptr_ind: [T; SPONGE_RATE],
     /// Whether this sig is active or not.
     pub is_active: T,
 }

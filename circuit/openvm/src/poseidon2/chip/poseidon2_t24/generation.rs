@@ -25,27 +25,27 @@ use std::mem::MaybeUninit;
 const MERKLE_ROWS: usize = SPONGE_PERM + LOG_LIFETIME;
 
 pub fn trace_height(
-    msg_hash_input: &[[F; 22]],
+    msg_hash_inputs: &[[F; 22]],
     merkle_inputs: &[(
         PublicKey,
         [F; SPONGE_INPUT_SIZE],
         [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
     )],
 ) -> usize {
-    (merkle_inputs.len() * MERKLE_ROWS + msg_hash_input.len()).next_power_of_two()
+    (merkle_inputs.len() * MERKLE_ROWS + msg_hash_inputs.len()).next_power_of_two()
 }
 
 pub fn generate_trace_rows(
     extra_capacity_bits: usize,
     epoch: u32,
-    msg_hash_input: Vec<[F; 22]>,
+    msg_hash_inputs: Vec<[F; 22]>,
     merkle_inputs: Vec<(
         PublicKey,
         [F; SPONGE_INPUT_SIZE],
         [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
     )>,
 ) -> RowMajorMatrix<F> {
-    let height = trace_height(&msg_hash_input, &merkle_inputs);
+    let height = trace_height(&msg_hash_inputs, &merkle_inputs);
     let size = height * NUM_POSEIDON2_T24_COLS;
     let mut vec = Vec::with_capacity(size << extra_capacity_bits);
     let trace = &mut vec.spare_capacity_mut()[..size];
@@ -187,14 +187,14 @@ pub fn generate_trace_rows(
                 .par_iter_mut()
                 .enumerate()
                 .for_each(|(idx, row)| {
-                    let input = msg_hash_input
+                    let input = msg_hash_inputs
                         .get(idx)
-                        .map(|compress_input| {
-                            from_fn(|i| compress_input.get(i).copied().unwrap_or_default())
+                        .map(|msg_hash_input| {
+                            from_fn(|i| msg_hash_input.get(i).copied().unwrap_or_default())
                         })
                         .unwrap_or_default();
                     row.is_msg
-                        .write(F::from_bool(msg_hash_input.get(idx).is_some()));
+                        .write(F::from_bool(msg_hash_inputs.get(idx).is_some()));
                     row.is_merkle_leaf.write(F::ZERO);
                     row.is_merkle_leaf_transition.write(F::ZERO);
                     row.is_merkle_path.write(F::ZERO);

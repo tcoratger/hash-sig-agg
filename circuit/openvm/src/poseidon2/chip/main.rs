@@ -3,12 +3,13 @@ use crate::poseidon2::{
     chip::main::{air::MainAir, column::NUM_MAIN_COLS},
     concat_array,
     hash_sig::{
-        LOG_LIFETIME, MSG_FE_LEN, MSG_HASH_FE_LEN, MSG_LEN, NUM_CHUNKS, PublicKey,
+        CHUNK_SIZE, LOG_LIFETIME, MSG_FE_LEN, MSG_HASH_FE_LEN, MSG_LEN, NUM_CHUNKS, PublicKey,
         SPONGE_INPUT_SIZE, Signature, TH_HASH_FE_LEN, TWEAK_FE_LEN, chain, encode_msg,
-        encode_tweak_merkle_tree, encode_tweak_msg, msg_hash_to_chunks, poseidon2_compress,
+        encode_tweak_chain, encode_tweak_merkle_tree, encode_tweak_msg, msg_hash_to_chunks,
+        poseidon2_compress,
     },
 };
-use core::any::type_name;
+use core::{any::type_name, iter};
 use generation::{generate_trace_rows, trace_height};
 use openvm_stark_backend::{
     Chip, ChipUsageGetter,
@@ -111,6 +112,31 @@ impl MainChip {
                 )
             })
             .collect()
+    }
+
+    pub fn decomposition_inputs(&self) -> (Vec<[F; 5]>, Vec<[F; 2]>) {
+        (
+            self.pairs
+                .iter()
+                .map(move |(pk, sig)| {
+                    poseidon2_compress::<24, 22, MSG_HASH_FE_LEN>(concat_array![
+                        sig.rho,
+                        self.encoded_tweak_msg,
+                        self.encoded_msg,
+                        pk.parameter,
+                    ])
+                })
+                .collect(),
+            iter::empty()
+                .chain((0..NUM_CHUNKS as u16).flat_map(|i| {
+                    (1..1 << CHUNK_SIZE).map(move |step| encode_tweak_chain(self.epoch, i, step))
+                }))
+                .chain(
+                    (0..=LOG_LIFETIME)
+                        .map(|level| encode_tweak_merkle_tree(level as _, self.epoch >> level)),
+                )
+                .collect(),
+        )
     }
 }
 

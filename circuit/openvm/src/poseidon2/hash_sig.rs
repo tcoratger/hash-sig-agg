@@ -126,10 +126,10 @@ pub fn chain(
     x_i: u16,
     one_time_sig_i: [F; TH_HASH_FE_LEN],
 ) -> [F; TH_HASH_FE_LEN] {
-    (x_i..(1 << CHUNK_SIZE) - 1).fold(one_time_sig_i, |value, step| {
+    (x_i + 1..(1 << CHUNK_SIZE)).fold(one_time_sig_i, |value, step| {
         poseidon2_compress::<16, 14, TH_HASH_FE_LEN>(concat_array![
             parameter,
-            encode_tweak_chain(epoch, i, step + 1),
+            encode_tweak_chain(epoch, i, step),
             value
         ])
     })

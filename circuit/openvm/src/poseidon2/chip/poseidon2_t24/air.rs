@@ -87,7 +87,7 @@ where
         ));
 
         // TODO:
-        // 1. Make sure `encoded_tweak_merkle_tree` is correct.
+        // 1. Make sure `encoded_tweak_merkle_tree` (`perm.inputs[PARAM_FE_LEN..][..TWEAK_FE_LEN]`) of leaf and path is correct.
 
         let main = builder.main();
 

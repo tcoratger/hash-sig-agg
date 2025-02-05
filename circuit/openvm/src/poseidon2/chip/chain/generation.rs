@@ -1,7 +1,7 @@
 use crate::poseidon2::{
     F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, RC16, SBOX_DEGREE, SBOX_REGISTERS,
     chip::chain::{
-        column::{ChainCols, NUM_CHAIN_COLS},
+        column::{ChainCols, GROUP_SIZE, NUM_CHAIN_COLS, NUM_GROUPS},
         poseidon2::{PARTIAL_ROUNDS, WIDTH},
     },
     concat_array,
@@ -86,17 +86,16 @@ pub fn generate_trace_rows(
         .zip(inputs.into_par_iter().chain(dummys))
         .for_each(|(mut rows, (pk, one_time_sig, x))| {
             let mut rows = rows.iter_mut();
-            let mut group_acc = [0u32; 6];
+            let mut group_acc = [0u32; NUM_GROUPS];
             let mut leaf_block_step = 0;
             let mut leaf_block_and_buf: [F; SPONGE_RATE + TH_HASH_FE_LEN - 1] =
                 concat_array![pk.parameter, encode_tweak_merkle_tree(0, epoch)];
             let mut leaf_block_ptr = PARAM_FE_LEN + TWEAK_FE_LEN;
             zip(0.., zip(one_time_sig, x)).for_each(|(i, (one_time_sig_i, x_i))| {
-                let group_idx = i / 13;
-                let group_step = i % 13;
-                let is_last_group_step = group_step == 12;
-                group_acc[group_idx as usize] =
-                    (group_acc[group_idx as usize] << CHUNK_SIZE) + x_i as u32;
+                let group_idx = i as usize / GROUP_SIZE;
+                let group_step = i as usize % GROUP_SIZE;
+                let is_last_group_step = group_step == GROUP_SIZE - 1;
+                group_acc[group_idx] = (group_acc[group_idx] << CHUNK_SIZE) + x_i as u32;
                 zip(
                     x_i..(1 << CHUNK_SIZE) - (x_i != (1 << CHUNK_SIZE) - 1) as u16,
                     rows.by_ref(),
@@ -118,16 +117,18 @@ pub fn generate_trace_rows(
                         .iter_mut()
                         .enumerate()
                         .for_each(|(idx, cell)| {
-                            cell.write(F::from_bool(idx == group_idx as usize));
+                            cell.write(F::from_bool(idx == group_idx));
                         });
                     zip(&mut row.group_acc, group_acc).for_each(|(cell, value)| {
                         cell.write(F::from_canonical_u32(value));
                     });
-                    row.group_step.write(F::from_canonical_u16(group_step));
+                    row.group_step.write(F::from_canonical_usize(group_step));
                     row.is_first_group_step
-                        .populate(F::from_canonical_u16(group_step));
-                    row.is_last_group_step
-                        .populate(F::from_canonical_u16(group_step), F::from_canonical_u8(12));
+                        .populate(F::from_canonical_usize(group_step));
+                    row.is_last_group_step.populate(
+                        F::from_canonical_usize(group_step),
+                        F::from_canonical_usize(GROUP_SIZE - 1),
+                    );
                     row.chain_step_bits
                         .iter_mut()
                         .enumerate()
@@ -137,10 +138,8 @@ pub fn generate_trace_rows(
                     row.is_last_group_row
                         .write(F::from_bool(is_last_chain_step && is_last_group_step));
                     row.is_last_sig_row.write(F::from_bool(
-                        is_last_chain_step && is_last_group_step && group_idx == 5,
+                        is_last_chain_step && is_last_group_step && group_idx == NUM_GROUPS - 1,
                     ));
-                    row.is_active
-                        .write(F::from_bool(pk.merkle_root != [F::ZERO; TH_HASH_FE_LEN]));
                     zip(&mut row.merkle_root, pk.merkle_root).for_each(|(cell, value)| {
                         cell.write(value);
                     });
@@ -179,6 +178,8 @@ pub fn generate_trace_rows(
                             .iter_mut()
                             .for_each(|v| *v = F::ZERO);
                     }
+                    row.is_active
+                        .write(F::from_bool(pk.merkle_root != [F::ZERO; TH_HASH_FE_LEN]));
                     output
                 });
             });

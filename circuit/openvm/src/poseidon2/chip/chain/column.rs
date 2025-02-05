@@ -3,7 +3,9 @@ use crate::{
     poseidon2::{
         HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::chain::poseidon2::{PARTIAL_ROUNDS, WIDTH},
-        hash_sig::{CHUNK_SIZE, PARAM_FE_LEN, SPONGE_RATE, TH_HASH_FE_LEN, TWEAK_FE_LEN},
+        hash_sig::{
+            CHUNK_SIZE, NUM_CHUNKS, PARAM_FE_LEN, SPONGE_RATE, TH_HASH_FE_LEN, TWEAK_FE_LEN,
+        },
     },
 };
 use core::{
@@ -15,14 +17,17 @@ use p3_poseidon2_air::Poseidon2Cols;
 
 pub const NUM_CHAIN_COLS: usize = size_of::<ChainCols<u8>>();
 
+pub const GROUP_SIZE: usize = 13;
+pub const NUM_GROUPS: usize = NUM_CHUNKS.div_ceil(GROUP_SIZE);
+
 #[repr(C)]
 pub struct ChainCols<T> {
     pub perm:
         Poseidon2Cols<T, WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
     /// Indicator for whether `group[idx]` is active.
-    pub group_ind: [T; 6],
+    pub group_ind: [T; NUM_GROUPS],
     /// Concatenation of `[x_{i}, x_{i+1}, ..., x_{i+12}]` in little-endian.
-    pub group_acc: [T; 6],
+    pub group_acc: [T; NUM_GROUPS],
     /// Cycling through `0..13` and `i = 13 * group_idx + group_step`.
     pub group_step: T,
     /// Chain step in little-endian bits.
@@ -69,8 +74,8 @@ impl<T: Copy> ChainCols<T> {
         &self.perm.inputs[..PARAM_FE_LEN]
     }
 
-    pub fn encoded_tweak(&self) -> &[T] {
-        &self.perm.inputs[PARAM_FE_LEN..PARAM_FE_LEN + TWEAK_FE_LEN]
+    pub fn encoded_tweak_chain(&self) -> &[T] {
+        &self.perm.inputs[PARAM_FE_LEN..][..TWEAK_FE_LEN]
     }
 
     pub fn chain_input<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]

@@ -9,7 +9,7 @@ use crate::poseidon2::{
 use core::{
     array::from_fn,
     borrow::Borrow,
-    iter::{self, Sum, repeat},
+    iter::{self, Sum},
 };
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
@@ -65,9 +65,7 @@ where
                         .chain(local.rho.map(Into::into))
                         .chain(encoded_tweak.map(Into::into))
                         .chain(encoded_msg.map(Into::into))
-                        .chain(local.parameter.map(Into::into))
-                        .chain(repeat(AB::Expr::ZERO))
-                        .take(24),
+                        .chain(local.parameter.map(Into::into)),
                 )
                 .chain(
                     iter::empty()

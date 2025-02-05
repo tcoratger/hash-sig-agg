@@ -3,12 +3,11 @@ use crate::poseidon2::{
     chip::chain::{air::ChainAir, column::NUM_CHAIN_COLS},
     concat_array,
     hash_sig::{
-        NUM_CHUNKS, PARAM_FE_LEN, SPONGE_INPUT_SIZE, TH_HASH_FE_LEN, chain,
-        encode_tweak_merkle_tree,
+        NUM_CHUNKS, PublicKey, SPONGE_INPUT_SIZE, TH_HASH_FE_LEN, chain, encode_tweak_merkle_tree,
     },
 };
 use core::any::type_name;
-use generation::generate_trace_rows;
+use generation::{generate_trace_rows, trace_height};
 use openvm_stark_backend::{
     Chip, ChipUsageGetter,
     config::{Domain, StarkGenericConfig},
@@ -32,7 +31,7 @@ pub struct ChainChip {
     air: Arc<ChainAir>,
     epoch: u32,
     inputs: Vec<(
-        [F; PARAM_FE_LEN],
+        PublicKey,
         [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
         [u16; NUM_CHUNKS],
     )>,
@@ -44,7 +43,7 @@ impl ChainChip {
         epoch: u32,
         inputs: impl IntoIterator<
             Item = (
-                [F; PARAM_FE_LEN],
+                PublicKey,
                 [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
                 [u16; NUM_CHUNKS],
             ),
@@ -61,10 +60,14 @@ impl ChainChip {
     pub fn poseidon2_t24_sponge_inputs(&self) -> Vec<[F; SPONGE_INPUT_SIZE]> {
         self.inputs
             .iter()
-            .map(move |(parameter, one_time_sig, x)| {
+            .map(move |(pk, one_time_sig, x)| {
                 let leaves = (0..NUM_CHUNKS)
-                    .flat_map(|i| chain(self.epoch, *parameter, i as _, x[i], one_time_sig[i]));
-                concat_array![*parameter, encode_tweak_merkle_tree(0, self.epoch), leaves]
+                    .flat_map(|i| chain(self.epoch, pk.parameter, i as _, x[i], one_time_sig[i]));
+                concat_array![
+                    pk.parameter,
+                    encode_tweak_merkle_tree(0, self.epoch),
+                    leaves
+                ]
             })
             .collect()
     }
@@ -76,7 +79,7 @@ impl ChipUsageGetter for ChainChip {
     }
 
     fn current_trace_height(&self) -> usize {
-        todo!()
+        trace_height(&self.inputs)
     }
 
     fn trace_width(&self) -> usize {

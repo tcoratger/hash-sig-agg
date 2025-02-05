@@ -4,9 +4,14 @@ use crate::poseidon2::{
         PARTIAL_ROUNDS, WIDTH,
         column::{NUM_POSEIDON2_T24_COLS, Poseidon2T24Cols},
     },
-    hash_sig::{SPONGE_CAPACITY_VALUES, SPONGE_INPUT_SIZE, SPONGE_PERM, SPONGE_RATE},
+    hash_sig::{
+        SPONGE_CAPACITY_VALUES, SPONGE_INPUT_SIZE, SPONGE_PERM, SPONGE_RATE, poseidon2_sponge,
+    },
 };
-use core::{array::from_fn, iter::zip};
+use core::{
+    array::from_fn,
+    iter::{repeat, zip},
+};
 use openvm_stark_backend::{
     p3_field::FieldAlgebra,
     p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixViewMut},
@@ -70,6 +75,7 @@ pub fn generate_trace_rows(
                 .par_chunks_mut(SPONGE_PERM)
                 .zip(sponge_inputs)
                 .for_each(|(rows, sponge_input)| {
+                    let sponge_output = poseidon2_sponge(sponge_input);
                     let mut input = from_fn(|i| {
                         i.checked_sub(SPONGE_RATE)
                             .map(|i| SPONGE_CAPACITY_VALUES[i])
@@ -77,13 +83,28 @@ pub fn generate_trace_rows(
                     });
                     rows.iter_mut()
                         .zip(sponge_input.chunks(SPONGE_RATE))
-                        .for_each(|(row, sponge_block)| {
-                            zip(&mut input, zip(&mut row.sponge_block, sponge_block)).for_each(
-                                |(state, (cell, value))| {
-                                    cell.write(*value);
-                                    *state += *value;
-                                },
+                        .enumerate()
+                        .for_each(|(sponge_block_step, (row, sponge_block))| {
+                            row.sponge_block_step
+                                .write(F::from_canonical_usize(sponge_block_step));
+                            row.is_last_sponge_step.populate(
+                                F::from_canonical_usize(sponge_block_step),
+                                F::from_canonical_usize(SPONGE_PERM - 1),
                             );
+                            zip(
+                                &mut input,
+                                zip(
+                                    &mut row.sponge_block,
+                                    sponge_block.iter().chain(repeat(&F::ZERO)),
+                                ),
+                            )
+                            .for_each(|(state, (cell, value))| {
+                                cell.write(*value);
+                                *state += *value;
+                            });
+                            zip(&mut row.sponge_output, sponge_output).for_each(|(cell, value)| {
+                                cell.write(value);
+                            });
                             generate_trace_rows_for_perm::<
                                 F,
                                 GenericPoseidon2LinearLayersHorizon<WIDTH>,
@@ -94,7 +115,7 @@ pub fn generate_trace_rows(
                                 PARTIAL_ROUNDS,
                             >(&mut row.perm, input, &RC24);
                             row.is_compress.write(F::ZERO);
-                            row.mult.write(F::ZERO);
+                            row.mult.write(F::ONE);
                             input = from_fn(|i| unsafe {
                                 row.perm.ending_full_rounds[HALF_FULL_ROUNDS - 1].post[i]
                                     .assume_init()

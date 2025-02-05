@@ -1,7 +1,7 @@
 use crate::poseidon2::{
     F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, RC24, SBOX_DEGREE, SBOX_REGISTERS,
     chip::{
-        BUS_POSEIDON2_T24_COMPRESS,
+        BUS_POSEIDON2_T24_COMPRESS, BUS_POSEIDON2_T24_SPONGE,
         poseidon2_t24::{
             PARTIAL_ROUNDS, WIDTH,
             column::{NUM_POSEIDON2_T24_COLS, Poseidon2T24Cols},
@@ -78,14 +78,22 @@ where
         let local: &Poseidon2T24Cols<AB::Var> = (*local).borrow();
 
         builder.assert_bool(local.is_compress);
-        let _is_sponge = AB::Expr::ONE - local.is_compress.into();
+        let is_sponge = AB::Expr::ONE - local.is_compress.into();
 
         builder.push_receive(
             BUS_POSEIDON2_T24_COMPRESS,
             iter::empty()
-                .chain(local.perm.inputs.map(Into::into))
+                .chain(local.perm.inputs[..22].iter().copied().map(Into::into))
                 .chain(local.compress_output::<AB>()),
             local.mult * local.is_compress.into(),
+        );
+        builder.push_receive(
+            BUS_POSEIDON2_T24_SPONGE,
+            iter::empty()
+                .chain(local.sponge_output)
+                .chain([local.sponge_block_step])
+                .chain(local.sponge_block),
+            local.mult * is_sponge.clone(),
         );
     }
 }

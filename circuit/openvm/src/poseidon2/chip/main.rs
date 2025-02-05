@@ -12,7 +12,7 @@ use core::{
     any::type_name,
     iter::{self, zip},
 };
-use generation::generate_trace_rows;
+use generation::{generate_trace_rows, trace_height};
 use openvm_stark_backend::{
     Chip, ChipUsageGetter,
     config::{Domain, StarkGenericConfig},
@@ -65,7 +65,7 @@ impl MainChip {
         &self,
     ) -> impl Iterator<
         Item = (
-            [F; PARAM_FE_LEN],
+            PublicKey,
             [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
             [u16; NUM_CHUNKS],
         ),
@@ -77,7 +77,7 @@ impl MainChip {
                 self.encoded_msg,
                 pk.parameter,
             ]);
-            (pk.parameter, sig.one_time_sig, msg_hash_to_chunks(msg_hash))
+            (*pk, sig.one_time_sig, msg_hash_to_chunks(msg_hash))
         })
     }
 
@@ -107,7 +107,7 @@ impl ChipUsageGetter for MainChip {
     }
 
     fn current_trace_height(&self) -> usize {
-        self.pairs.len()
+        trace_height(&self.pairs)
     }
 
     fn trace_width(&self) -> usize {
@@ -132,7 +132,7 @@ where
                     self.extra_capacity_bits,
                     self.encoded_tweak_msg,
                     self.encoded_msg,
-                    &self.pairs,
+                    self.pairs,
                 )),
                 public_values: iter::empty()
                     .chain(self.encoded_tweak_msg)

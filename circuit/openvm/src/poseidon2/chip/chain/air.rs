@@ -3,13 +3,13 @@ use crate::{
     poseidon2::{
         F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::{
-            BUS_CHAIN,
+            BUS_CHAIN, BUS_MERKLE_TREE, BUS_POSEIDON2_T24_SPONGE,
             chain::{
                 column::{ChainCols, NUM_CHAIN_COLS},
                 poseidon2::{PARTIAL_ROUNDS, WIDTH},
             },
         },
-        hash_sig::CHUNK_SIZE,
+        hash_sig::{CHUNK_SIZE, SPONGE_RATE, TH_HASH_FE_LEN},
     },
 };
 use core::{
@@ -86,7 +86,7 @@ where
         let next: &ChainCols<AB::Var> = (*next).borrow();
 
         // TODO:
-        // 1. Make sure `encoded_tweak_chain` is correct.
+        // 1. Make sure `encoded_tweak` is correct.
         // 2. Schedule poseidon2 sponge invocation and send to poseidon2 sponge bus.
         // 3. Send to merkle tree opening bus.
 
@@ -107,10 +107,7 @@ where
             local.is_sig_last_row,
             local.is_group_last_row * local.group_ind[5],
         );
-        builder
-            .when(not(local.is_sig_last_row.into()))
-            .assert_zero(local.mult);
-        builder.assert_bool(local.mult);
+        builder.assert_bool(local.is_active);
 
         // When first row
         {
@@ -196,7 +193,30 @@ where
             iter::empty()
                 .chain(local.parameter().iter().copied())
                 .chain(local.group_acc),
-            local.mult.into(),
+            local.is_active.into() * local.is_sig_last_row.into(),
+        );
+        builder.push_send(
+            BUS_POSEIDON2_T24_SPONGE,
+            iter::empty()
+                .chain(local.leaf)
+                .chain([local.sponge_block_step])
+                .chain(local.sponge_block_and_buf[..SPONGE_RATE].iter().copied()),
+            local.is_active
+                * (local.is_last_chain_step::<AB>()
+                    * local.sponge_block_ptr_ind[..TH_HASH_FE_LEN]
+                        .iter()
+                        .copied()
+                        .map(Into::into)
+                        .sum::<AB::Expr>()
+                    + local.is_sig_last_row.into() * local.sponge_block_ptr_ind[13].into()),
+        );
+        builder.push_send(
+            BUS_MERKLE_TREE,
+            iter::empty()
+                .chain(local.parameter().iter().copied())
+                .chain(local.leaf)
+                .chain(local.merkle_root),
+            local.is_active * local.is_sig_last_row.into(),
         );
     }
 }

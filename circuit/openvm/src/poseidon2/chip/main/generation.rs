@@ -14,13 +14,17 @@ use openvm_stark_backend::{
     p3_maybe_rayon::prelude::*,
 };
 
+pub fn trace_height(pairs: &[(PublicKey, Signature)]) -> usize {
+    pairs.len().next_power_of_two()
+}
+
 pub fn generate_trace_rows(
     extra_capacity_bits: usize,
     encoded_tweak_msg: [F; TWEAK_FE_LEN],
     encoded_msg: [F; MSG_FE_LEN],
-    pairs: &[(PublicKey, Signature)],
+    pairs: Vec<(PublicKey, Signature)>,
 ) -> RowMajorMatrix<F> {
-    let height = pairs.len().next_power_of_two();
+    let height = trace_height(&pairs);
     let size = height * NUM_MAIN_COLS;
     let mut vec = Vec::with_capacity(size << extra_capacity_bits);
     let trace = &mut vec.spare_capacity_mut()[..size];

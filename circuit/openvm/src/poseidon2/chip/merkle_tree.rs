@@ -1,7 +1,10 @@
 use crate::poseidon2::{
     F,
     chip::merkle_tree::{air::MerkleTreeAir, column::NUM_MERKLE_TREE_COLS},
-    hash_sig::{LOG_LIFETIME, PARAM_FE_LEN, TH_HASH_FE_LEN},
+    concat_array,
+    hash_sig::{
+        LOG_LIFETIME, PARAM_FE_LEN, TH_HASH_FE_LEN, encode_tweak_merkle_tree, poseidon2_compress,
+    },
 };
 use core::any::type_name;
 use generation::{generate_trace_rows, trace_height};
@@ -13,7 +16,7 @@ use openvm_stark_backend::{
     prover::types::{AirProofInput, AirProofRawInput},
     rap::AnyRap,
 };
-use std::sync::Arc;
+use std::{array::from_fn, sync::Arc};
 
 mod air;
 mod column;
@@ -44,6 +47,27 @@ impl MerkleTreeChip {
             epoch,
             inputs,
         }
+    }
+
+    pub fn poseidon2_t24_compress(&self) -> impl Iterator<Item = [F; 22]> {
+        self.inputs
+            .iter()
+            .flat_map(move |(parameter, leaf, siblings)| {
+                let mut node = *leaf;
+                siblings.iter().enumerate().map(move |(level, sibling)| {
+                    let input = concat_array![
+                        *parameter,
+                        encode_tweak_merkle_tree(level as u32 + 1, self.epoch >> (level + 1)),
+                        if (self.epoch >> level) & 1 == 0 {
+                            [node, *sibling].into_iter().flatten()
+                        } else {
+                            [*sibling, node].into_iter().flatten()
+                        }
+                    ];
+                    node = poseidon2_compress::<24, 21, TH_HASH_FE_LEN>(input);
+                    from_fn(|i| input.get(i).copied().unwrap_or_default())
+                })
+            })
     }
 }
 

@@ -58,6 +58,8 @@ pub fn generate_trace_rows(
                 zip(rows, siblings)
                     .enumerate()
                     .fold(*leaf, |node, (level, (row, sibling))| {
+                        let encoded_tweak =
+                            encode_tweak_merkle_tree(level as u32 + 1, epoch_dec >> 1);
                         let mut input = [node, *sibling];
                         let is_right = epoch_dec & 1 == 1;
                         if is_right {
@@ -65,10 +67,16 @@ pub fn generate_trace_rows(
                         }
                         let output = poseidon2_compress::<24, 21, TH_HASH_FE_LEN>(concat_array![
                             *parameter,
-                            encode_tweak_merkle_tree(level as u32 + 1, epoch_dec >> 1),
+                            encoded_tweak,
                             input[0],
                             input[1]
                         ]);
+                        zip(&mut row.parameter, parameter).for_each(|(cell, value)| {
+                            cell.write(*value);
+                        });
+                        zip(&mut row.encoded_tweak, encoded_tweak).for_each(|(cell, value)| {
+                            cell.write(value);
+                        });
                         row.level.write(F::from_canonical_usize(level));
                         row.is_last_level.populate(
                             F::from_canonical_usize(level),
@@ -106,10 +114,12 @@ pub fn generate_trace_rows(
                     row.epoch_dec.write(F::from_canonical_u32(epoch_dec));
                     row.is_right.write(F::from_bool(is_right));
                     [
-                        &mut row.leaf,
-                        &mut row.left,
-                        &mut row.right,
-                        &mut row.output,
+                        row.parameter.as_mut_slice(),
+                        row.encoded_tweak.as_mut_slice(),
+                        row.leaf.as_mut_slice(),
+                        row.left.as_mut_slice(),
+                        row.right.as_mut_slice(),
+                        row.output.as_mut_slice(),
                     ]
                     .iter_mut()
                     .for_each(|cells| {

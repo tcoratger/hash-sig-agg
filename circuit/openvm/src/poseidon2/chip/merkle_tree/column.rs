@@ -1,10 +1,15 @@
-use crate::{gadget::is_equal::IsEqualCols, poseidon2::hash_sig::TH_HASH_FE_LEN};
+use crate::{
+    gadget::is_equal::IsEqualCols,
+    poseidon2::hash_sig::{PARAM_FE_LEN, TH_HASH_FE_LEN, TWEAK_FE_LEN},
+};
 use core::borrow::{Borrow, BorrowMut};
 
 pub const NUM_MERKLE_TREE_COLS: usize = size_of::<MerkleTreeCols<u8>>();
 
 #[repr(C)]
 pub struct MerkleTreeCols<T> {
+    pub parameter: [T; PARAM_FE_LEN],
+    pub encoded_tweak: [T; TWEAK_FE_LEN],
     pub level: T,
     pub is_last_level: IsEqualCols<T>,
     pub epoch_dec: T,

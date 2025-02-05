@@ -1,7 +1,10 @@
-use crate::poseidon2::{
-    HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
-    chip::poseidon2_t24::{PARTIAL_ROUNDS, WIDTH},
-    hash_sig::{SPONGE_RATE, TH_HASH_FE_LEN},
+use crate::{
+    gadget::is_equal::IsEqualCols,
+    poseidon2::{
+        HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
+        chip::poseidon2_t24::{PARTIAL_ROUNDS, WIDTH},
+        hash_sig::{SPONGE_RATE, TH_HASH_FE_LEN},
+    },
 };
 use core::{
     array::from_fn,
@@ -16,7 +19,10 @@ pub const NUM_POSEIDON2_T24_COLS: usize = size_of::<Poseidon2T24Cols<u8>>();
 pub struct Poseidon2T24Cols<T> {
     pub perm:
         Poseidon2Cols<T, WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
+    pub sponge_block_step: T,
+    pub is_last_sponge_step: IsEqualCols<T>,
     pub sponge_block: [T; SPONGE_RATE],
+    pub sponge_output: [T; TH_HASH_FE_LEN],
     pub is_compress: T,
     pub mult: T,
 }

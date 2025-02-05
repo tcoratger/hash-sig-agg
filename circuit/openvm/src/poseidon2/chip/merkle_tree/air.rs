@@ -2,11 +2,17 @@ use crate::{
     gadget::not,
     poseidon2::{
         F,
-        chip::merkle_tree::column::{MerkleTreeCols, NUM_MERKLE_TREE_COLS},
+        chip::{
+            BUS_MERKLE_TREE, BUS_POSEIDON2_T24_COMPRESS,
+            merkle_tree::column::{MerkleTreeCols, NUM_MERKLE_TREE_COLS},
+        },
         hash_sig::LOG_LIFETIME,
     },
 };
-use core::{borrow::Borrow, iter::zip};
+use core::{
+    borrow::Borrow,
+    iter::{self, repeat, zip},
+};
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
     p3_air::{Air, AirBuilder, AirBuilderWithPublicValues, BaseAir},
@@ -46,6 +52,9 @@ where
         let local: &MerkleTreeCols<AB::Var> = (*local).borrow();
         let next: &MerkleTreeCols<AB::Var> = (*next).borrow();
 
+        // TODO:
+        // 1. Make sure `encoded_tweak` is correct.
+
         // When every rows
         builder.assert_bool(local.is_right);
         builder.assert_bool(local.is_active);
@@ -84,6 +93,7 @@ where
                 zip(next.left, local.output)
                     .for_each(|(a, b)| builder.when(not(next.is_right.into())).assert_eq(a, b));
                 builder.assert_eq(next.is_active, local.is_active);
+                zip(next.parameter, local.parameter).for_each(|(a, b)| builder.assert_eq(a, b));
             }
 
             // When is_last_level
@@ -97,6 +107,28 @@ where
 
         // Interaction
 
-        // TODO: Send to `BUS_POSEIDON2_T24_COMPRESS` when `is_active`.
+        builder.push_send(
+            BUS_POSEIDON2_T24_COMPRESS,
+            iter::empty()
+                .chain(
+                    iter::empty()
+                        .chain(local.parameter.map(Into::into))
+                        .chain(local.encoded_tweak.map(Into::into))
+                        .chain(local.left.map(Into::into))
+                        .chain(local.right.map(Into::into))
+                        .chain(repeat(AB::Expr::ZERO))
+                        .take(22),
+                )
+                .chain(iter::empty().chain(local.output.map(Into::into))),
+            local.is_active,
+        );
+        builder.push_receive(
+            BUS_MERKLE_TREE,
+            iter::empty()
+                .chain(local.parameter.map(Into::into))
+                .chain(local.leaf.map(Into::into))
+                .chain(local.output.map(Into::into)),
+            local.is_active * local.is_last_level.output.into(),
+        );
     }
 }

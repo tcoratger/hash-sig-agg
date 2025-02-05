@@ -3,14 +3,14 @@ use crate::{
     poseidon2::{
         HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::chain::poseidon2::{PARTIAL_ROUNDS, WIDTH},
-        hash_sig::{CHUNK_SIZE, PARAM_FE_LEN, TH_HASH_FE_LEN, TWEAK_FE_LEN},
+        hash_sig::{CHUNK_SIZE, PARAM_FE_LEN, SPONGE_RATE, TH_HASH_FE_LEN, TWEAK_FE_LEN},
     },
 };
 use core::{
     array::from_fn,
     borrow::{Borrow, BorrowMut},
 };
-use openvm_stark_backend::p3_air::AirBuilder;
+use openvm_stark_backend::{p3_air::AirBuilder, p3_field::FieldAlgebra};
 use p3_poseidon2_air::Poseidon2Cols;
 
 pub const NUM_CHAIN_COLS: usize = size_of::<ChainCols<u8>>();
@@ -19,7 +19,6 @@ pub const NUM_CHAIN_COLS: usize = size_of::<ChainCols<u8>>();
 pub struct ChainCols<T> {
     pub perm:
         Poseidon2Cols<T, WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
-    pub encoded_tweak_chain: [T; TWEAK_FE_LEN],
     /// Indicator for whether `group[idx]` is active.
     pub group_ind: [T; 6],
     /// Concatenation of `[x_{i}, x_{i+1}, ..., x_{i+12}]` in little-endian.
@@ -36,7 +35,18 @@ pub struct ChainCols<T> {
     pub is_group_last_row: T,
     /// Equals to `is_group_last_step * group_ind[5]`.
     pub is_sig_last_row: T,
-    pub mult: T,
+    /// Merkle tree root.
+    pub merkle_root: [T; TH_HASH_FE_LEN],
+    /// Merkle tree leaf to verify.
+    pub leaf: [T; TH_HASH_FE_LEN],
+    /// Sponge block step.
+    pub sponge_block_step: T,
+    /// Sponge block and overflowing (pre-image block of leaf).
+    pub sponge_block_and_buf: [T; SPONGE_RATE + TH_HASH_FE_LEN - 1],
+    /// Sponge block pointer indicators.
+    pub sponge_block_ptr_ind: [T; SPONGE_RATE],
+    /// Whether this sig is active or not.
+    pub is_active: T,
 }
 
 impl<T: Copy> ChainCols<T> {
@@ -45,12 +55,10 @@ impl<T: Copy> ChainCols<T> {
         T: Into<AB::Expr>,
     {
         const { assert!(CHUNK_SIZE == 2) }
-        self.chain_step_bits[0].into()
-            + self.chain_step_bits[1].into()
-            + self.chain_step_bits[1].into()
+        self.chain_step_bits[0].into() + self.chain_step_bits[1].into().double()
     }
 
-    /// Returns bool indicating `chain_step == (1 << CHUNKS_SIZE) - 2`
+    /// Returns bool indicating `chain_step >= (1 << CHUNKS_SIZE) - 2`
     pub fn is_last_chain_step<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -61,6 +69,10 @@ impl<T: Copy> ChainCols<T> {
 
     pub fn parameter(&self) -> &[T] {
         &self.perm.inputs[..PARAM_FE_LEN]
+    }
+
+    pub fn encoded_tweak(&self) -> &[T] {
+        &self.perm.inputs[PARAM_FE_LEN..PARAM_FE_LEN + TWEAK_FE_LEN]
     }
 
     pub fn chain_input<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]

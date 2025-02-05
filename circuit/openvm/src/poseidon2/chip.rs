@@ -4,6 +4,7 @@ use crate::poseidon2::{
     hash_sig::{MSG_LEN, PublicKey, Signature},
 };
 use chain::ChainChip;
+use core::iter;
 use merkle_tree::MerkleTreeChip;
 use openvm_stark_backend::{
     AirRef, Chip,
@@ -21,6 +22,7 @@ pub mod poseidon2_t24;
 pub const BUS_POSEIDON2_T24_COMPRESS: usize = 0;
 pub const BUS_POSEIDON2_T24_SPONGE: usize = 1;
 pub const BUS_CHAIN: usize = 2;
+pub const BUS_MERKLE_TREE: usize = 3;
 
 pub fn generate_air_proof_inputs<SC: StarkGenericConfig>(
     extra_capacity_bits: usize,
@@ -41,7 +43,9 @@ where
     );
     let poseidon2_t24 = Poseidon2T24Chip::new(
         extra_capacity_bits,
-        main.poseidon2_t24_compress(),
+        iter::empty()
+            .chain(main.poseidon2_t24_compress())
+            .chain(merkle_tree.poseidon2_t24_compress()),
         poseidon2_t24_sponge_inputs,
     );
     (

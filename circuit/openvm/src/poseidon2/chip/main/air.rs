@@ -2,6 +2,7 @@ use crate::poseidon2::{
     F,
     chip::{
         BUS_CHAIN, BUS_MSG_HASH,
+        chain::GROUP_SIZE,
         main::column::{MainCols, NUM_MAIN_COLS},
     },
     hash_sig::{CHUNK_SIZE, TARGET_SUM},
@@ -60,7 +61,7 @@ where
             iter::empty()
                 .chain(local.parameter.map(Into::into))
                 .chain(local.merkle_root.map(Into::into))
-                .chain(local.x.chunks(13).map(|x| {
+                .chain(local.x.chunks(GROUP_SIZE).map(|x| {
                     x.iter()
                         .copied()
                         .map(Into::into)

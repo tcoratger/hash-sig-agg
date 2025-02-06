@@ -3,6 +3,7 @@ use crate::poseidon2::{
     chip::decomposition::{
         air::DecompositionAir, column::NUM_DECOMPOSITION_COLS, generation::trace_height,
     },
+    hash_sig::VerificationTrace,
 };
 use core::any::type_name;
 use generation::generate_trace_rows;
@@ -19,33 +20,29 @@ mod air;
 mod column;
 mod generation;
 
-pub struct DecompositionChip {
+pub struct DecompositionChip<'a> {
     extra_capacity_bits: usize,
-    msg_hash_inputs: Vec<[F; 5]>,
-    tweak_inputs: Vec<[F; 2]>,
+    epoch: u32,
+    traces: &'a [VerificationTrace],
 }
 
-impl DecompositionChip {
-    pub fn new(
-        extra_capacity_bits: usize,
-        msg_hash_inputs: Vec<[F; 5]>,
-        tweak_inputs: Vec<[F; 2]>,
-    ) -> Self {
+impl<'a> DecompositionChip<'a> {
+    pub fn new(extra_capacity_bits: usize, epoch: u32, traces: &'a [VerificationTrace]) -> Self {
         Self {
             extra_capacity_bits,
-            msg_hash_inputs,
-            tweak_inputs,
+            epoch,
+            traces,
         }
     }
 }
 
-impl ChipUsageGetter for DecompositionChip {
+impl ChipUsageGetter for DecompositionChip<'_> {
     fn air_name(&self) -> String {
         type_name::<DecompositionAir>().to_string()
     }
 
     fn current_trace_height(&self) -> usize {
-        trace_height(&self.msg_hash_inputs, &self.tweak_inputs)
+        trace_height(self.traces)
     }
 
     fn trace_width(&self) -> usize {
@@ -53,7 +50,7 @@ impl ChipUsageGetter for DecompositionChip {
     }
 }
 
-impl<SC: StarkGenericConfig> Chip<SC> for DecompositionChip
+impl<SC: StarkGenericConfig> Chip<SC> for DecompositionChip<'_>
 where
     Domain<SC>: PolynomialSpace<Val = F>,
 {
@@ -68,8 +65,8 @@ where
                 cached_mains: Vec::new(),
                 common_main: Some(generate_trace_rows(
                     self.extra_capacity_bits,
-                    self.msg_hash_inputs,
-                    self.tweak_inputs,
+                    self.epoch,
+                    self.traces,
                 )),
                 public_values: Vec::new(),
             },

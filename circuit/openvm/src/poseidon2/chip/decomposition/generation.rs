@@ -1,16 +1,21 @@
-use crate::poseidon2::{F, chip::decomposition::column::NUM_DECOMPOSITION_COLS};
+use crate::poseidon2::{
+    F,
+    chip::decomposition::column::NUM_DECOMPOSITION_COLS,
+    hash_sig::{CHUNK_SIZE, LOG_LIFETIME, NUM_CHUNKS, VerificationTrace},
+};
 use openvm_stark_backend::{p3_field::FieldAlgebra, p3_matrix::dense::RowMajorMatrix};
 
-pub fn trace_height(msg_hash_inputs: &[[F; 5]], tweak_inputs: &[[F; 2]]) -> usize {
-    (5 * msg_hash_inputs.len() + 2 * tweak_inputs.len()).next_power_of_two()
+pub fn trace_height(traces: &[VerificationTrace]) -> usize {
+    (5 * traces.len() + 2 * (NUM_CHUNKS * ((1 << CHUNK_SIZE) - 1) + LOG_LIFETIME + 1))
+        .next_power_of_two()
 }
 
 pub fn generate_trace_rows(
     extra_capacity_bits: usize,
-    msg_hash_inputs: Vec<[F; 5]>,
-    tweak_inputs: Vec<[F; 2]>,
+    _epoch: u32,
+    traces: &[VerificationTrace],
 ) -> RowMajorMatrix<F> {
-    let height = trace_height(&msg_hash_inputs, &tweak_inputs);
+    let height = trace_height(traces);
     let size = height * NUM_DECOMPOSITION_COLS;
     let mut vec = Vec::with_capacity(size << extra_capacity_bits);
     // let trace = &mut vec.spare_capacity_mut()[..size];

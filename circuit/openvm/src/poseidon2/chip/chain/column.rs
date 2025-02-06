@@ -2,23 +2,22 @@ use crate::{
     gadget::{is_equal::IsEqualCols, is_zero::IsZeroCols},
     poseidon2::{
         HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
-        chip::chain::poseidon2::{PARTIAL_ROUNDS, WIDTH},
-        hash_sig::{
-            CHUNK_SIZE, NUM_CHUNKS, PARAM_FE_LEN, SPONGE_RATE, TH_HASH_FE_LEN, TWEAK_FE_LEN,
+        chip::chain::{
+            GROUP_SIZE, NUM_GROUPS,
+            poseidon2::{PARTIAL_ROUNDS, WIDTH},
         },
+        hash_sig::{CHUNK_SIZE, PARAM_FE_LEN, TH_HASH_FE_LEN, TWEAK_FE_LEN},
     },
 };
 use core::{
     array::from_fn,
     borrow::{Borrow, BorrowMut},
+    iter::zip,
 };
 use openvm_stark_backend::{p3_air::AirBuilder, p3_field::FieldAlgebra};
 use p3_poseidon2_air::Poseidon2Cols;
 
 pub const NUM_CHAIN_COLS: usize = size_of::<ChainCols<u8>>();
-
-pub const GROUP_SIZE: usize = 13;
-pub const NUM_GROUPS: usize = NUM_CHUNKS.div_ceil(GROUP_SIZE);
 
 #[repr(C)]
 pub struct ChainCols<T> {
@@ -28,13 +27,13 @@ pub struct ChainCols<T> {
     pub group_ind: [T; NUM_GROUPS],
     /// Concatenation of `[x_{i}, x_{i+1}, ..., x_{i+12}]` in little-endian.
     pub group_acc: [T; NUM_GROUPS],
-    /// Cycling through `0..13` and `i = 13 * group_idx + group_step`.
+    /// Cycling through `0..GROUP_SIZE` and `i = GROUP_SIZE * group_idx + group_step`.
     pub group_step: T,
     /// Chain step in little-endian bits.
     pub chain_step_bits: [T; CHUNK_SIZE],
     /// Whether `group_step == 0`.
     pub is_first_group_step: IsZeroCols<T>,
-    /// Whether `group_step == 12`.
+    /// Whether `group_step == GROUP_SIZE - 1`.
     pub is_last_group_step: IsEqualCols<T>,
     /// Equals to `is_last_gruop_step * is_last_chain_step`.
     pub is_last_group_row: T,
@@ -42,12 +41,6 @@ pub struct ChainCols<T> {
     pub is_last_sig_row: T,
     /// Merkle tree root.
     pub merkle_root: [T; TH_HASH_FE_LEN],
-    /// Leaf block step.
-    pub leaf_block_step: T,
-    /// Leaf block and overflowing.
-    pub leaf_block_and_buf: [T; SPONGE_RATE + TH_HASH_FE_LEN - 1],
-    /// Leaf block pointer indicators.
-    pub leaf_block_ptr_ind: [T; SPONGE_RATE],
     /// Whether this sig is active or not.
     pub is_active: T,
 }
@@ -78,6 +71,17 @@ impl<T: Copy> ChainCols<T> {
         &self.perm.inputs[PARAM_FE_LEN..][..TWEAK_FE_LEN]
     }
 
+    pub fn leaf_chunk_idx<AB: AirBuilder>(&self) -> AB::Expr
+    where
+        T: Into<AB::Expr>,
+    {
+        zip((0..).step_by(GROUP_SIZE), self.group_ind)
+            .map(|(scalar, ind)| AB::Expr::from_canonical_usize(scalar) * ind.into())
+            .sum::<AB::Expr>()
+            + self.group_step.into()
+            + AB::Expr::ONE
+    }
+
     pub fn chain_input<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]
     where
         T: Into<AB::Expr>,
@@ -85,7 +89,7 @@ impl<T: Copy> ChainCols<T> {
         from_fn(|i| self.perm.inputs[PARAM_FE_LEN + TWEAK_FE_LEN + i].into())
     }
 
-    pub fn chain_output<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]
+    pub fn compression_output<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]
     where
         T: Into<AB::Expr>,
     {

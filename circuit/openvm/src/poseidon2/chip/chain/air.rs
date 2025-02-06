@@ -5,21 +5,23 @@ use crate::{
         chip::{
             BUS_CHAIN, BUS_MERKLE_TREE,
             chain::{
+                GROUP_SIZE,
                 column::{ChainCols, NUM_CHAIN_COLS},
                 poseidon2::{PARTIAL_ROUNDS, WIDTH},
             },
         },
-        hash_sig::{CHUNK_SIZE, PARAM_FE_LEN, SPONGE_RATE, TH_HASH_FE_LEN, TWEAK_FE_LEN},
+        hash_sig::{CHUNK_SIZE, TWEAK_FE_LEN},
     },
 };
 use core::{
+    array::from_fn,
     borrow::Borrow,
     iter::{self, Sum, zip},
 };
 use openvm_stark_backend::{
     air_builders::sub::SubAirBuilder,
     interaction::InteractionBuilder,
-    p3_air::{Air, AirBuilder, BaseAir},
+    p3_air::{Air, AirBuilder, AirBuilderWithPublicValues, BaseAir},
     p3_field::FieldAlgebra,
     p3_matrix::Matrix,
     rap::{BaseAirWithPublicValues, PartitionedBaseAir},
@@ -53,11 +55,15 @@ impl BaseAir<F> for ChainAir {
 
 impl PartitionedBaseAir<F> for ChainAir {}
 
-impl BaseAirWithPublicValues<F> for ChainAir {}
+impl BaseAirWithPublicValues<F> for ChainAir {
+    fn num_public_values(&self) -> usize {
+        TWEAK_FE_LEN
+    }
+}
 
 impl<AB> Air<AB> for ChainAir
 where
-    AB: InteractionBuilder<F = F>,
+    AB: InteractionBuilder<F = F> + AirBuilderWithPublicValues,
     AB::Expr: FieldAlgebra<F = F>,
 {
     fn eval(&self, builder: &mut AB) {
@@ -84,6 +90,9 @@ where
 
         let main = builder.main();
 
+        let encoded_tweak_merkle_tree: [_; TWEAK_FE_LEN] =
+            from_fn(|i| builder.public_values()[i].into());
+
         let local = main.row_slice(0);
         let next = main.row_slice(1);
         let local: &ChainCols<AB::Var> = (*local).borrow();
@@ -95,6 +104,7 @@ where
         // When first row
         {
             let mut builder = builder.when_first_row();
+
             builder.assert_one(local.is_active);
             eval_sig_first_row(&mut builder, local)
         }
@@ -102,35 +112,14 @@ where
         // When transition
         {
             let mut builder = builder.when_transition();
+
             eval_sig_transition(&mut builder, local, next);
             eval_sig_first_row(&mut builder.when(local.is_last_sig_row), next);
         }
 
         // Interaction
-
-        builder.push_receive(
-            BUS_CHAIN,
-            iter::empty()
-                .chain(local.parameter().iter().copied())
-                .chain(local.merkle_root)
-                .chain(local.group_acc),
-            local.is_active.into() * local.is_last_sig_row.into(),
-        );
-        builder.push_send(
-            BUS_MERKLE_TREE,
-            iter::empty()
-                .chain(local.merkle_root)
-                .chain([local.leaf_block_step])
-                .chain(local.leaf_block_and_buf[..SPONGE_RATE].iter().copied()),
-            local.is_active
-                * (local.is_last_chain_step::<AB>()
-                    * local.leaf_block_ptr_ind[..TH_HASH_FE_LEN]
-                        .iter()
-                        .copied()
-                        .map(Into::into)
-                        .sum::<AB::Expr>()
-                    + local.is_last_sig_row.into()),
-        );
+        receive_chain(builder, local);
+        send_merkle_tree(builder, encoded_tweak_merkle_tree, local);
     }
 }
 
@@ -153,16 +142,6 @@ where
         cols.is_last_sig_row,
         cols.is_last_group_row * cols.group_ind[5],
     );
-    cols.leaf_block_ptr_ind
-        .iter()
-        .for_each(|ind| builder.assert_bool(*ind));
-    builder.assert_one(
-        cols.leaf_block_ptr_ind
-            .iter()
-            .copied()
-            .map(Into::into)
-            .sum::<AB::Expr>(),
-    );
     builder.assert_bool(cols.is_active);
 }
 
@@ -174,29 +153,6 @@ where
     builder.assert_one(cols.group_ind[0]);
     builder.assert_eq(cols.group_acc[0], cols.chain_step::<AB>());
     builder.assert_zero(cols.group_step);
-    builder.assert_zero(cols.leaf_block_step);
-    zip(&cols.leaf_block_and_buf[..PARAM_FE_LEN], cols.parameter())
-        .for_each(|(a, b)| builder.assert_eq(*a, *b));
-
-    // When is_last_chain_step
-    {
-        let mut builder = builder.when(cols.is_last_chain_step::<AB>());
-
-        cols.leaf_block_and_buf[PARAM_FE_LEN + TWEAK_FE_LEN + TH_HASH_FE_LEN..]
-            .iter()
-            .for_each(|block| builder.assert_zero(*block));
-        builder.assert_one(cols.leaf_block_ptr_ind[PARAM_FE_LEN + TWEAK_FE_LEN + TH_HASH_FE_LEN]);
-    }
-
-    // When not(is_last_chain_step)
-    {
-        let mut builder = builder.when(not(cols.is_last_chain_step::<AB>()));
-
-        cols.leaf_block_and_buf[PARAM_FE_LEN + TWEAK_FE_LEN..]
-            .iter()
-            .for_each(|block| builder.assert_zero(*block));
-        builder.assert_one(cols.leaf_block_ptr_ind[PARAM_FE_LEN + TWEAK_FE_LEN]);
-    }
 }
 
 fn eval_sig_transition<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &ChainCols<AB::Var>)
@@ -222,7 +178,7 @@ where
             is_last_chain_step.clone(),
             local.group_step.into(),
             (local.group_step.into() + AB::Expr::ONE)
-                - is_last_group_step.clone() * AB::Expr::from_canonical_u32(13),
+                - is_last_group_step.clone() * AB::Expr::from_canonical_usize(GROUP_SIZE),
         ),
     );
     builder.when(not(is_last_chain_step.clone())).assert_eq(
@@ -262,7 +218,53 @@ where
     // When `not(is_last_chain_step)`.
     {
         let mut builder = builder.when(not(is_last_chain_step.clone()));
-        zip(local.chain_output::<AB>(), next.chain_input::<AB>())
+
+        zip(local.compression_output::<AB>(), next.chain_input::<AB>())
             .for_each(|(a, b)| builder.assert_eq(a, b));
     }
+}
+
+fn receive_chain<AB>(builder: &mut AB, local: &ChainCols<AB::Var>)
+where
+    AB: InteractionBuilder<F = F>,
+    AB::Expr: FieldAlgebra<F = F>,
+{
+    builder.push_receive(
+        BUS_CHAIN,
+        iter::empty()
+            .chain(local.parameter().iter().copied())
+            .chain(local.merkle_root)
+            .chain(local.group_acc),
+        local.is_active.into() * local.is_last_sig_row.into(),
+    );
+}
+
+fn send_merkle_tree<AB>(
+    builder: &mut AB,
+    encoded_tweak_merkle_tree: [AB::Expr; TWEAK_FE_LEN],
+    local: &ChainCols<AB::Var>,
+) where
+    AB: InteractionBuilder<F = F>,
+    AB::Expr: FieldAlgebra<F = F>,
+{
+    builder.push_send(
+        BUS_MERKLE_TREE,
+        iter::empty()
+            .chain(local.merkle_root.map(Into::into))
+            .chain([local.leaf_chunk_idx::<AB>()])
+            .chain(
+                zip(local.compression_output::<AB>(), local.chain_input::<AB>())
+                    .map(|(a, b)| select(local.chain_step_bits[0].into(), a, b)),
+            ),
+        local.is_active * local.is_last_chain_step::<AB>(),
+    );
+    builder.push_send(
+        BUS_MERKLE_TREE,
+        iter::empty()
+            .chain(local.merkle_root.map(Into::into))
+            .chain([AB::Expr::ZERO])
+            .chain(local.parameter().iter().copied().map(Into::into))
+            .chain(encoded_tweak_merkle_tree.map(Into::into)),
+        local.is_active * local.is_last_sig_row.into(),
+    );
 }

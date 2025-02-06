@@ -1,5 +1,5 @@
 use crate::{
-    gadget::is_equal::IsEqualCols,
+    gadget::{is_equal::IsEqualCols, not},
     poseidon2::{
         HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::poseidon2_t24::{PARTIAL_ROUNDS, WIDTH},
@@ -25,9 +25,11 @@ pub struct Poseidon2T24Cols<T> {
     pub is_merkle_path: T,
     pub is_merkle_path_transition: T,
     pub root: [T; TH_HASH_FE_LEN],
-    pub leaf_block_step: T,
-    pub is_last_leaf_block_step: IsEqualCols<T>,
-    pub leaf_block: [T; SPONGE_RATE],
+    pub sponge_step: T,
+    pub is_last_sponge_step: IsEqualCols<T>,
+    pub sponge_block: [T; SPONGE_RATE],
+    pub leaf_chunk_start_ind: [T; SPONGE_RATE],
+    pub leaf_chunk_idx: T,
     pub level: T,
     pub is_last_level: IsEqualCols<T>,
     pub epoch_dec: T,
@@ -35,6 +37,20 @@ pub struct Poseidon2T24Cols<T> {
 }
 
 impl<T: Copy> Poseidon2T24Cols<T> {
+    pub fn is_merkle_transition<AB: AirBuilder>(&self) -> AB::Expr
+    where
+        T: Into<AB::Expr>,
+    {
+        self.is_merkle_leaf.into() + self.is_merkle_path_transition.into()
+    }
+
+    pub fn is_padding<AB: AirBuilder>(&self) -> AB::Expr
+    where
+        T: Into<AB::Expr>,
+    {
+        not(self.is_msg.into() + self.is_merkle_leaf.into() + self.is_merkle_path.into())
+    }
+
     pub fn msg_hash<AB: AirBuilder>(&self) -> [AB::Expr; MSG_HASH_FE_LEN]
     where
         T: Into<AB::Expr>,

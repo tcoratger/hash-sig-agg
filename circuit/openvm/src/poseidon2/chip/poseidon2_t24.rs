@@ -3,10 +3,7 @@ use crate::poseidon2::{
     chip::poseidon2_t24::{
         air::Poseidon2T24Air, column::NUM_POSEIDON2_T24_COLS, generation::generate_trace_rows,
     },
-    hash_sig::{
-        LOG_LIFETIME, MSG_LEN, PublicKey, SPONGE_INPUT_SIZE, TH_HASH_FE_LEN, encode_msg,
-        encode_tweak_msg,
-    },
+    hash_sig::{MSG_FE_LEN, VerificationTrace, encode_tweak_msg},
 };
 use core::{any::type_name, iter};
 use generation::trace_height;
@@ -27,51 +24,38 @@ mod generation;
 const WIDTH: usize = 24;
 const PARTIAL_ROUNDS: usize = 21;
 
-pub struct Poseidon2T24Chip {
+pub struct Poseidon2T24Chip<'a> {
+    air: Arc<Poseidon2T24Air>,
     extra_capacity_bits: usize,
     epoch: u32,
-    msg: [u8; MSG_LEN],
-    air: Arc<Poseidon2T24Air>,
-    msg_hash_input: Vec<[F; 22]>,
-    merkle_inputs: Vec<(
-        PublicKey,
-        [F; SPONGE_INPUT_SIZE],
-        [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
-    )>,
+    encoded_msg: [F; MSG_FE_LEN],
+    traces: &'a [VerificationTrace],
 }
 
-impl Poseidon2T24Chip {
+impl<'a> Poseidon2T24Chip<'a> {
     pub fn new(
         extra_capacity_bits: usize,
         epoch: u32,
-        msg: [u8; MSG_LEN],
-        msg_hash_input: impl IntoIterator<Item = [F; 22]>,
-        merkle_inputs: impl IntoIterator<
-            Item = (
-                PublicKey,
-                [F; SPONGE_INPUT_SIZE],
-                [[F; TH_HASH_FE_LEN]; LOG_LIFETIME],
-            ),
-        >,
+        encoded_msg: [F; MSG_FE_LEN],
+        traces: &'a [VerificationTrace],
     ) -> Self {
         Self {
+            air: Default::default(),
             extra_capacity_bits,
             epoch,
-            msg,
-            air: Default::default(),
-            msg_hash_input: msg_hash_input.into_iter().collect(),
-            merkle_inputs: merkle_inputs.into_iter().collect(),
+            encoded_msg,
+            traces,
         }
     }
 }
 
-impl ChipUsageGetter for Poseidon2T24Chip {
+impl ChipUsageGetter for Poseidon2T24Chip<'_> {
     fn air_name(&self) -> String {
         type_name::<Poseidon2T24Air>().to_string()
     }
 
     fn current_trace_height(&self) -> usize {
-        trace_height(&self.msg_hash_input, &self.merkle_inputs)
+        trace_height(self.traces)
     }
 
     fn trace_width(&self) -> usize {
@@ -79,7 +63,7 @@ impl ChipUsageGetter for Poseidon2T24Chip {
     }
 }
 
-impl<SC: StarkGenericConfig> Chip<SC> for Poseidon2T24Chip
+impl<SC: StarkGenericConfig> Chip<SC> for Poseidon2T24Chip<'_>
 where
     Domain<SC>: PolynomialSpace<Val = F>,
 {
@@ -95,13 +79,13 @@ where
                 common_main: Some(generate_trace_rows(
                     self.extra_capacity_bits,
                     self.epoch,
-                    self.msg_hash_input,
-                    self.merkle_inputs,
+                    self.encoded_msg,
+                    self.traces,
                 )),
                 public_values: iter::empty()
                     .chain([F::from_canonical_u32(self.epoch)])
                     .chain(encode_tweak_msg(self.epoch))
-                    .chain(encode_msg(self.msg))
+                    .chain(self.encoded_msg)
                     .collect(),
             },
         }

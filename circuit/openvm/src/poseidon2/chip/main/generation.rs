@@ -1,51 +1,63 @@
 use crate::poseidon2::{
     F,
     chip::main::column::{MainCols, NUM_MAIN_COLS},
-    concat_array,
-    hash_sig::{
-        MSG_FE_LEN, MSG_HASH_FE_LEN, PublicKey, Signature, TWEAK_FE_LEN, msg_hash_to_chunks,
-        poseidon2_compress,
-    },
+    hash_sig::VerificationTrace,
 };
+use core::{iter::zip, mem::MaybeUninit};
 use openvm_stark_backend::{
     p3_field::FieldAlgebra,
     p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixViewMut},
     p3_maybe_rayon::prelude::*,
 };
 
-pub fn trace_height(pairs: &[(PublicKey, Signature)]) -> usize {
-    pairs.len().next_power_of_two()
+pub fn trace_height(traces: &[VerificationTrace]) -> usize {
+    traces.len().next_power_of_two()
 }
 
 pub fn generate_trace_rows(
     extra_capacity_bits: usize,
-    encoded_tweak_msg: [F; TWEAK_FE_LEN],
-    encoded_msg: [F; MSG_FE_LEN],
-    pairs: Vec<(PublicKey, Signature)>,
+    traces: &[VerificationTrace],
 ) -> RowMajorMatrix<F> {
-    let height = trace_height(&pairs);
+    let height = trace_height(traces);
     let size = height * NUM_MAIN_COLS;
     let mut vec = Vec::with_capacity(size << extra_capacity_bits);
     let trace = &mut vec.spare_capacity_mut()[..size];
     let trace = RowMajorMatrixViewMut::new(trace, NUM_MAIN_COLS);
 
-    let (prefix, rows, suffix) = unsafe { trace.values.align_to_mut::<MainCols<_>>() };
+    let (prefix, rows, suffix) = unsafe { trace.values.align_to_mut::<MainCols<MaybeUninit<_>>>() };
     assert!(prefix.is_empty(), "Alignment should match");
     assert!(suffix.is_empty(), "Alignment should match");
     assert_eq!(rows.len(), height);
 
     rows.par_iter_mut().enumerate().for_each(|(idx, row)| {
-        if let Some((pk, sig)) = pairs.get(idx) {
-            row.is_active = F::ONE;
-            row.parameter = pk.parameter;
-            row.merkle_root = pk.merkle_root;
-            row.msg_hash = poseidon2_compress::<24, 22, MSG_HASH_FE_LEN>(concat_array![
-                sig.rho,
-                encoded_tweak_msg,
-                encoded_msg,
-                pk.parameter,
-            ]);
-            row.x = msg_hash_to_chunks(row.msg_hash).map(F::from_canonical_u16);
+        if let Some(trace) = traces.get(idx) {
+            row.is_active.write(F::ONE);
+            zip(&mut row.parameter, trace.pk.parameter).for_each(|(cell, value)| {
+                cell.write(value);
+            });
+            zip(&mut row.merkle_root, trace.pk.merkle_root).for_each(|(cell, value)| {
+                cell.write(value);
+            });
+            zip(&mut row.msg_hash, trace.msg_hash).for_each(|(cell, value)| {
+                cell.write(value);
+            });
+            zip(&mut row.x, trace.x).for_each(|(cell, value)| {
+                cell.write(F::from_canonical_u16(value));
+            });
+        } else {
+            row.is_active.write(F::ZERO);
+            row.parameter.iter_mut().for_each(|cell| {
+                cell.write(F::ZERO);
+            });
+            row.merkle_root.iter_mut().for_each(|cell| {
+                cell.write(F::ZERO);
+            });
+            row.msg_hash.iter_mut().for_each(|cell| {
+                cell.write(F::ZERO);
+            });
+            row.x.iter_mut().for_each(|cell| {
+                cell.write(F::ZERO);
+            });
         }
     });
 

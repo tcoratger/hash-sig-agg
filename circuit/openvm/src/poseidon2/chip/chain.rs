@@ -1,7 +1,7 @@
 use crate::poseidon2::{
     F,
     chip::chain::{air::ChainAir, column::NUM_CHAIN_COLS},
-    hash_sig::{NUM_CHUNKS, PublicKey, TH_HASH_FE_LEN},
+    hash_sig::{NUM_CHUNKS, VerificationTrace, encode_tweak_merkle_tree},
 };
 use core::any::type_name;
 use generation::{generate_trace_rows, trace_height};
@@ -14,6 +14,9 @@ use openvm_stark_backend::{
 };
 use std::sync::Arc;
 
+pub const GROUP_SIZE: usize = 13;
+pub const NUM_GROUPS: usize = NUM_CHUNKS.div_ceil(GROUP_SIZE);
+
 mod air;
 mod column;
 mod generation;
@@ -23,45 +26,31 @@ mod poseidon2 {
     pub const PARTIAL_ROUNDS: usize = 13;
 }
 
-pub struct ChainChip {
-    extra_capacity_bits: usize,
+pub struct ChainChip<'a> {
     air: Arc<ChainAir>,
+    extra_capacity_bits: usize,
     epoch: u32,
-    inputs: Vec<(
-        PublicKey,
-        [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
-        [u16; NUM_CHUNKS],
-    )>,
+    traces: &'a [VerificationTrace],
 }
 
-impl ChainChip {
-    pub fn new(
-        extra_capacity_bits: usize,
-        epoch: u32,
-        inputs: impl IntoIterator<
-            Item = (
-                PublicKey,
-                [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
-                [u16; NUM_CHUNKS],
-            ),
-        >,
-    ) -> Self {
+impl<'a> ChainChip<'a> {
+    pub fn new(extra_capacity_bits: usize, epoch: u32, traces: &'a [VerificationTrace]) -> Self {
         Self {
+            air: Default::default(),
             extra_capacity_bits,
             epoch,
-            air: Default::default(),
-            inputs: inputs.into_iter().collect(),
+            traces,
         }
     }
 }
 
-impl ChipUsageGetter for ChainChip {
+impl ChipUsageGetter for ChainChip<'_> {
     fn air_name(&self) -> String {
         type_name::<ChainAir>().to_string()
     }
 
     fn current_trace_height(&self) -> usize {
-        trace_height(&self.inputs)
+        trace_height(self.traces)
     }
 
     fn trace_width(&self) -> usize {
@@ -69,7 +58,7 @@ impl ChipUsageGetter for ChainChip {
     }
 }
 
-impl<SC: StarkGenericConfig> Chip<SC> for ChainChip
+impl<SC: StarkGenericConfig> Chip<SC> for ChainChip<'_>
 where
     Domain<SC>: PolynomialSpace<Val = F>,
 {
@@ -85,9 +74,9 @@ where
                 common_main: Some(generate_trace_rows(
                     self.extra_capacity_bits,
                     self.epoch,
-                    self.inputs,
+                    self.traces,
                 )),
-                public_values: Vec::new(),
+                public_values: encode_tweak_merkle_tree(0, self.epoch).to_vec(),
             },
         }
     }

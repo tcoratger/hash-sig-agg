@@ -86,6 +86,69 @@ impl Default for Signature {
     }
 }
 
+pub struct VerificationTrace {
+    pub pk: PublicKey,
+    pub sig: Signature,
+    pub msg_hash: [F; MSG_HASH_FE_LEN],
+    pub x: [u16; NUM_CHUNKS],
+    pub one_time_pk: [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
+}
+
+impl VerificationTrace {
+    pub fn generate(
+        epoch: u32,
+        encoded_msg: [F; MSG_FE_LEN],
+        pk: PublicKey,
+        sig: Signature,
+    ) -> Self {
+        let msg_hash = poseidon2_compress::<24, 22, MSG_HASH_FE_LEN>(concat_array![
+            sig.rho,
+            encode_tweak_msg(epoch),
+            encoded_msg,
+            pk.parameter
+        ]);
+        let x = msg_hash_to_chunks(msg_hash);
+        let one_time_pk =
+            from_fn(|i| chain(epoch, pk.parameter, i as _, x[i], sig.one_time_sig[i]));
+        Self {
+            pk,
+            sig,
+            msg_hash,
+            x,
+            one_time_pk,
+        }
+    }
+
+    pub fn msg_hash_preimage(&self, epoch: u32, encoded_msg: [F; MSG_FE_LEN]) -> [F; 24] {
+        concat_array![
+            self.sig.rho,
+            encode_tweak_msg(epoch),
+            encoded_msg,
+            self.pk.parameter,
+        ]
+    }
+
+    pub fn merkle_tree_leaf(&self, epoch: u32) -> [F; SPONGE_INPUT_SIZE] {
+        concat_array![
+            self.pk.parameter,
+            encode_tweak_merkle_tree(0, epoch),
+            self.one_time_pk.into_iter().flatten()
+        ]
+    }
+}
+
+impl Default for VerificationTrace {
+    fn default() -> Self {
+        Self {
+            pk: Default::default(),
+            sig: Default::default(),
+            msg_hash: Default::default(),
+            x: from_fn(|i| if i >= NUM_CHUNKS / 2 { 1 } else { 2 }),
+            one_time_pk: from_fn(|_| Default::default()),
+        }
+    }
+}
+
 pub fn encode_msg(msg: [u8; MSG_LEN]) -> [F; MSG_FE_LEN] {
     decompose(BigUint::from_bytes_le(&msg))
 }
@@ -101,8 +164,8 @@ pub fn encode_tweak_merkle_tree(l: u32, i: u32) -> [F; TWEAK_FE_LEN] {
 }
 
 pub fn encode_tweak_msg(epoch: u32) -> [F; TWEAK_FE_LEN] {
-    const SEP: u64 = 0x02;
-    decompose(((epoch as u64) << 8) | SEP)
+    const SEP: u32 = 0x02;
+    [F::from_canonical_u32(epoch << 8 | SEP), F::ZERO] // `decompose(((epoch as u64) << 8) | SEP)`.
 }
 
 pub fn msg_hash_to_chunks(hash: [F; MSG_HASH_FE_LEN]) -> [u16; NUM_CHUNKS] {

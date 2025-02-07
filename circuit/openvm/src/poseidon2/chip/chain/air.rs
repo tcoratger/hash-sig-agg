@@ -5,7 +5,7 @@ use crate::{
         chip::{
             BUS_CHAIN, BUS_MERKLE_TREE,
             chain::{
-                GROUP_SIZE,
+                GROUP_SIZE, LAST_GROUP_SIZE, NUM_GROUPS,
                 column::{ChainCols, NUM_CHAIN_COLS},
                 poseidon2::{PARTIAL_ROUNDS, WIDTH},
             },
@@ -86,11 +86,10 @@ where
 
         // TODO:
         // 1. Make sure `encoded_tweak_chain` is correct.
-        // 2. Make sure `leaf_block_step`, `leaf_block_and_buf` and `leaf_block_ptr_ind` is correct.
 
         let main = builder.main();
 
-        let encoded_tweak_merkle_tree: [_; TWEAK_FE_LEN] =
+        let encoded_tweak_merkle_leaf: [_; TWEAK_FE_LEN] =
             from_fn(|i| builder.public_values()[i].into());
 
         let local = main.row_slice(0);
@@ -106,20 +105,23 @@ where
             let mut builder = builder.when_first_row();
 
             builder.assert_one(local.is_active);
-            eval_sig_first_row(&mut builder, local)
+            builder.assert_one(local.group_ind[0]);
+            builder.assert_eq(local.group_acc[0], local.chain_step::<AB>());
+            builder.assert_zero(local.group_step);
         }
 
         // When transition
         {
             let mut builder = builder.when_transition();
 
+            eval_transition(&mut builder, local, next);
             eval_sig_transition(&mut builder, local, next);
-            eval_sig_first_row(&mut builder.when(local.is_last_sig_row), next);
+            eval_chain_transition(&mut builder, local, next);
         }
 
         // Interaction
         receive_chain(builder, local);
-        send_merkle_tree(builder, encoded_tweak_merkle_tree, local);
+        send_merkle_tree(builder, encoded_tweak_merkle_leaf, local);
     }
 }
 
@@ -132,69 +134,62 @@ where
     builder.assert_one(AB::Expr::sum(cols.group_ind.into_iter().map(Into::into)));
     cols.chain_step_bits.map(|bit| builder.assert_bool(bit));
     cols.is_first_group_step.eval(builder, cols.group_step);
-    cols.is_last_group_step
-        .eval(builder, cols.group_step, F::from_canonical_u32(12));
+    cols.is_last_group_step.eval(
+        builder,
+        cols.group_step,
+        select(
+            cols.group_ind[NUM_GROUPS - 1].into(),
+            AB::Expr::from_canonical_usize(GROUP_SIZE - 1),
+            AB::Expr::from_canonical_usize(LAST_GROUP_SIZE - 1),
+        ),
+    );
     builder.assert_eq(
         cols.is_last_group_row,
         cols.is_last_chain_step::<AB>() * cols.is_last_group_step.output.into(),
     );
     builder.assert_eq(
         cols.is_last_sig_row,
-        cols.is_last_group_row * cols.group_ind[5],
+        cols.is_last_group_row * cols.group_ind[NUM_GROUPS - 1],
     );
     builder.assert_bool(cols.is_active);
 }
 
-fn eval_sig_first_row<AB>(builder: &mut AB, cols: &ChainCols<AB::Var>)
+fn eval_transition<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &ChainCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
     AB::Expr: FieldAlgebra<F = F>,
 {
-    builder.assert_one(cols.group_ind[0]);
-    builder.assert_eq(cols.group_acc[0], cols.chain_step::<AB>());
-    builder.assert_zero(cols.group_step);
-}
-
-fn eval_sig_transition<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &ChainCols<AB::Var>)
-where
-    AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
-{
-    let is_last_chain_step = local.is_last_chain_step::<AB>();
-    let is_last_group_step = local.is_last_group_step.output.into();
-    (0..6).for_each(|i| {
+    builder.assert_eq(
+        next.group_step,
+        select(
+            local.is_last_chain_step::<AB>(),
+            local.group_step.into(),
+            (local.group_step.into() + AB::Expr::ONE)
+                - local.is_last_group_step.output
+                    * select(
+                        local.group_ind[NUM_GROUPS - 1].into(),
+                        AB::Expr::from_canonical_usize(GROUP_SIZE),
+                        AB::Expr::from_canonical_usize(LAST_GROUP_SIZE),
+                    ),
+        ),
+    );
+    (0..NUM_GROUPS).for_each(|i| {
+        let i_minus_1 = i.checked_sub(1).unwrap_or(NUM_GROUPS - 1);
         builder.assert_eq(
             next.group_ind[i],
             select(
                 local.is_last_group_row.into(),
                 local.group_ind[i].into(),
-                local.group_ind[i.checked_sub(1).unwrap_or(5)].into(),
+                local.group_ind[i_minus_1].into(),
             ),
-        )
-    });
-    builder.assert_eq(
-        next.group_step,
-        select(
-            is_last_chain_step.clone(),
-            local.group_step.into(),
-            (local.group_step.into() + AB::Expr::ONE)
-                - is_last_group_step.clone() * AB::Expr::from_canonical_usize(GROUP_SIZE),
-        ),
-    );
-    builder.when(not(is_last_chain_step.clone())).assert_eq(
-        next.chain_step::<AB>(),
-        local.chain_step::<AB>() + AB::Expr::ONE,
-    );
-    (0..6).for_each(|i| {
+        );
         builder
-            .when(local.group_ind[i] * next.group_ind[i.checked_sub(1).unwrap_or(5)])
-            .assert_eq(
-                next.group_acc[i.checked_sub(1).unwrap_or(5)],
-                next.chain_step::<AB>(),
-            );
+            .when(local.group_ind[i_minus_1] * next.group_ind[i])
+            .assert_eq(next.group_acc[i], next.chain_step::<AB>());
         builder
             .when(
-                local.group_ind[i] * (is_last_chain_step.clone() - local.is_last_group_row.into()),
+                local.group_ind[i]
+                    * (local.is_last_chain_step::<AB>() - local.is_last_group_row.into()),
             )
             .assert_eq(
                 next.group_acc[i],
@@ -202,26 +197,39 @@ where
                     + next.chain_step::<AB>(),
             );
         builder
-            .when(local.group_ind[i] * not(is_last_chain_step.clone()))
+            .when(local.group_ind[i] * not(local.is_last_chain_step::<AB>()))
             .assert_eq(next.group_acc[i], local.group_acc[i]);
     });
+}
 
-    // When `not(is_last_sig_row)`.
-    {
-        let mut builder = builder.when(not(local.is_last_sig_row.into()));
+fn eval_sig_transition<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &ChainCols<AB::Var>)
+where
+    AB: AirBuilder<F = F>,
+    AB::Expr: FieldAlgebra<F = F>,
+{
+    let mut builder = builder.when(not(local.is_last_sig_row.into()));
 
-        zip(local.parameter(), next.parameter()).for_each(|(a, b)| builder.assert_eq(*a, *b));
-        zip(local.merkle_root, next.merkle_root).for_each(|(a, b)| builder.assert_eq(a, b));
-        builder.assert_eq(local.is_active, next.is_active)
-    }
+    zip(local.parameter(), next.parameter()).for_each(|(a, b)| builder.assert_eq(*a, *b));
+    zip(local.merkle_root, next.merkle_root).for_each(|(a, b)| builder.assert_eq(a, b));
+    builder.assert_eq(local.is_active, next.is_active);
+}
 
-    // When `not(is_last_chain_step)`.
-    {
-        let mut builder = builder.when(not(is_last_chain_step.clone()));
+fn eval_chain_transition<AB>(
+    builder: &mut AB,
+    local: &ChainCols<AB::Var>,
+    next: &ChainCols<AB::Var>,
+) where
+    AB: AirBuilder<F = F>,
+    AB::Expr: FieldAlgebra<F = F>,
+{
+    let mut builder = builder.when(not(local.is_last_chain_step::<AB>()));
 
-        zip(local.compression_output::<AB>(), next.chain_input::<AB>())
-            .for_each(|(a, b)| builder.assert_eq(a, b));
-    }
+    builder.assert_eq(
+        next.chain_step::<AB>(),
+        local.chain_step::<AB>() + AB::Expr::ONE,
+    );
+    zip(next.chain_input::<AB>(), local.compression_output::<AB>())
+        .for_each(|(a, b)| builder.assert_eq(a, b));
 }
 
 fn receive_chain<AB>(builder: &mut AB, local: &ChainCols<AB::Var>)
@@ -241,21 +249,22 @@ where
 
 fn send_merkle_tree<AB>(
     builder: &mut AB,
-    encoded_tweak_merkle_tree: [AB::Expr; TWEAK_FE_LEN],
+    encoded_tweak_merkle_leaf: [AB::Expr; TWEAK_FE_LEN],
     local: &ChainCols<AB::Var>,
 ) where
     AB: InteractionBuilder<F = F>,
     AB::Expr: FieldAlgebra<F = F>,
 {
+    // If `chain_step_bits[0]`, it means the `one_time_sig_i` is already end of
+    // the chain, and it's layouted in the cells of `chain_input`.
+    let chain_output = zip(local.compression_output::<AB>(), local.chain_input::<AB>())
+        .map(|(a, b)| select(local.chain_step_bits[0].into(), a, b));
     builder.push_send(
         BUS_MERKLE_TREE,
         iter::empty()
             .chain(local.merkle_root.map(Into::into))
             .chain([local.leaf_chunk_idx::<AB>()])
-            .chain(
-                zip(local.compression_output::<AB>(), local.chain_input::<AB>())
-                    .map(|(a, b)| select(local.chain_step_bits[0].into(), a, b)),
-            ),
+            .chain(chain_output),
         local.is_active * local.is_last_chain_step::<AB>(),
     );
     builder.push_send(
@@ -264,7 +273,7 @@ fn send_merkle_tree<AB>(
             .chain(local.merkle_root.map(Into::into))
             .chain([AB::Expr::ZERO])
             .chain(local.parameter().iter().copied().map(Into::into))
-            .chain(encoded_tweak_merkle_tree.map(Into::into)),
+            .chain(encoded_tweak_merkle_leaf.map(Into::into)),
         local.is_active * local.is_last_sig_row.into(),
     );
 }

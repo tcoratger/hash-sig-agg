@@ -818,7 +818,6 @@ dependencies = [
  "p3-poseidon2-air",
  "p3-poseidon2-util",
  "p3-symmetric",
- "rayon",
  "tracing-forest",
  "tracing-subscriber",
 ]

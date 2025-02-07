@@ -110,7 +110,7 @@ where
             let mut builder = builder.when_first_row();
 
             builder.assert_one(local.is_merkle_leaf);
-            eval_merkle_leaf_first_row(&mut builder, local)
+            eval_merkle_leaf_first_row(&mut builder.when(local.is_merkle_leaf), local)
         }
 
         // When transition
@@ -181,8 +181,6 @@ where
     AB: AirBuilder<F = F>,
     AB::Expr: FieldAlgebra<F = F>,
 {
-    let mut builder = builder.when(cols.is_merkle_leaf);
-
     builder.assert_zero(cols.sponge_step);
     builder.assert_zero(cols.leaf_chunk_idx);
     (0..SPONGE_RATE)
@@ -298,7 +296,7 @@ fn eval_merkle_path_last_row<AB>(
 
     builder.assert_one(next.is_merkle_leaf.into() + next.is_msg.into());
     zip(local.root, local.compress_output::<AB>()).for_each(|(a, b)| builder.assert_eq(a, b));
-    eval_merkle_leaf_first_row(&mut builder, next);
+    eval_merkle_leaf_first_row(&mut builder.when(next.is_merkle_leaf), next);
 }
 
 fn eval_msg_transition<AB>(

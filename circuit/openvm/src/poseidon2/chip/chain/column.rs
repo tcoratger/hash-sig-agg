@@ -23,21 +23,23 @@ pub const NUM_CHAIN_COLS: usize = size_of::<ChainCols<u8>>();
 pub struct ChainCols<T> {
     pub perm:
         Poseidon2Cols<T, WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
-    /// Indicator for whether `group[idx]` is active.
+    /// One-hot array indicating whether `group[idx]` is active.
     pub group_ind: [T; NUM_GROUPS],
-    /// Concatenation of `[x_{i}, x_{i+1}, ..., x_{i+12}]` in little-endian.
+    /// Accumulator of `((((x_{i} << CHUNK_SIZE) + x_{i+1}) << CHUNK_SIZE) + ...) + x_{i + GROUP_SIZE - 1}`
     pub group_acc: [T; NUM_GROUPS],
-    /// Cycling through `0..GROUP_SIZE` and `i = GROUP_SIZE * group_idx + group_step`.
+    /// Cycling through `0..LAST_GROUP_SIZE` when `group_ind[NUM_GROUPS - 1]`,
+    /// otherwise `0..GROUP_SIZE`.
     pub group_step: T,
-    /// Chain step in little-endian bits.
+    /// Chain step in little-endian bits, in range `0..(1 << CHUNK_SIZE)`.
     pub chain_step_bits: [T; CHUNK_SIZE],
     /// Whether `group_step == 0`.
     pub is_first_group_step: IsZeroCols<T>,
-    /// Whether `group_step == GROUP_SIZE - 1`.
+    /// Whether `group_step == LAST_GROUP_SIZE - 1` when `group_ind[NUM_GROUPS - 1]`,
+    /// otherwise `group_step == GROUP_SIZE - 1`.
     pub is_last_group_step: IsEqualCols<T>,
     /// Equals to `is_last_gruop_step * is_last_chain_step`.
     pub is_last_group_row: T,
-    /// Equals to `is_last_gruop_step * group_ind[5]`.
+    /// Equals to `is_last_group_row * group_ind[NUM_GROUPS - 1]`.
     pub is_last_sig_row: T,
     /// Merkle tree root.
     pub merkle_root: [T; TH_HASH_FE_LEN],

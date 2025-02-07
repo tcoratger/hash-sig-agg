@@ -1,7 +1,7 @@
 use crate::poseidon2::{
     F,
     chip::{
-        BUS_CHAIN, BUS_MSG_HASH,
+        BUS_CHAIN, BUS_DECOMPOSITION, BUS_MSG_HASH,
         chain::GROUP_SIZE,
         main::column::{MainCols, NUM_MAIN_COLS},
     },
@@ -70,6 +70,17 @@ where
                         })
                         .unwrap()
                 })),
+            local.is_active,
+        );
+        builder.push_send(
+            BUS_DECOMPOSITION,
+            iter::empty().chain(local.msg_hash.map(Into::into)).chain(
+                local.x.chunks(8 / CHUNK_SIZE).map(|chunk| {
+                    chunk.iter().rfold(AB::Expr::ZERO, |acc, x_i| {
+                        acc * AB::Expr::from_canonical_u32(1 << CHUNK_SIZE) + (*x_i).into()
+                    })
+                }),
+            ),
             local.is_active,
         );
     }

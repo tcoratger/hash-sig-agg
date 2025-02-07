@@ -14,8 +14,13 @@ use openvm_stark_backend::{
 };
 use std::sync::Arc;
 
-pub const GROUP_SIZE: usize = 13;
+pub const GROUP_SIZE: usize = 8;
 pub const NUM_GROUPS: usize = NUM_CHUNKS.div_ceil(GROUP_SIZE);
+pub const LAST_GROUP_SIZE: usize = if NUM_CHUNKS % GROUP_SIZE == 0 {
+    GROUP_SIZE
+} else {
+    NUM_CHUNKS % GROUP_SIZE
+};
 
 mod air;
 mod column;

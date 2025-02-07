@@ -22,6 +22,7 @@ pub mod poseidon2_t24;
 pub const BUS_MSG_HASH: usize = 0;
 pub const BUS_CHAIN: usize = 1;
 pub const BUS_MERKLE_TREE: usize = 2;
+pub const BUS_DECOMPOSITION: usize = 3;
 
 pub fn generate_air_proof_inputs<SC: StarkGenericConfig>(
     extra_capacity_bits: usize,

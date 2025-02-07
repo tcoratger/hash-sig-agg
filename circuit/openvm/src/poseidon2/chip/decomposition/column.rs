@@ -4,12 +4,12 @@ pub const NUM_DECOMPOSITION_COLS: usize = size_of::<DecompositionCols<u8>>();
 
 #[repr(C)]
 pub struct DecompositionCols<T> {
-    values: [T; 5],
-    value_bytes: [T; 4],
-    ind: [T; 5],
-    acc_bytes: [T; 20],
-    acc_carries: [T; 20],
-    mult: T,
+    pub ind: [T; 5],
+    pub values: [T; 5],
+    pub value_bytes: [T; 4],
+    pub acc_bytes: [T; 20],
+    pub acc_carries: [T; 20],
+    pub mult: T,
 }
 
 impl<T> Borrow<DecompositionCols<T>> for [T] {

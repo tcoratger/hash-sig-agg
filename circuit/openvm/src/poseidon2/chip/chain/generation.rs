@@ -1,14 +1,14 @@
 use crate::poseidon2::{
     F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, RC16, SBOX_DEGREE, SBOX_REGISTERS,
     chip::chain::{
-        GROUP_SIZE, NUM_GROUPS,
+        GROUP_SIZE, LAST_GROUP_SIZE, NUM_GROUPS,
         column::{ChainCols, NUM_CHAIN_COLS},
         poseidon2::{PARTIAL_ROUNDS, WIDTH},
     },
     concat_array,
     hash_sig::{
-        CHUNK_SIZE, PARAM_FE_LEN, SPONGE_RATE, TARGET_SUM, TH_HASH_FE_LEN, TWEAK_FE_LEN,
-        VerificationTrace, encode_tweak_chain, encode_tweak_merkle_tree,
+        CHUNK_SIZE, NUM_CHUNKS, PARAM_FE_LEN, SPONGE_RATE, TARGET_SUM, TH_HASH_FE_LEN,
+        TWEAK_FE_LEN, VerificationTrace, encode_tweak_chain, encode_tweak_merkle_tree,
     },
 };
 use core::{array::from_fn, iter::zip};
@@ -76,7 +76,9 @@ pub fn generate_trace_rows(
                 |(i, (one_time_sig_i, x_i))| {
                     let group_idx = i as usize / GROUP_SIZE;
                     let group_step = i as usize % GROUP_SIZE;
-                    let is_last_group_step = group_step == GROUP_SIZE - 1;
+                    let is_last_group = group_idx == NUM_GROUPS - 1;
+                    let is_last_group_step =
+                        group_step == GROUP_SIZE - 1 || i as usize == NUM_CHUNKS - 1;
                     group_acc[group_idx] = (group_acc[group_idx] << CHUNK_SIZE) + x_i as u32;
                     zip(
                         x_i..(1 << CHUNK_SIZE) - (x_i != (1 << CHUNK_SIZE) - 1) as u16,
@@ -109,7 +111,11 @@ pub fn generate_trace_rows(
                             .populate(F::from_canonical_usize(group_step));
                         row.is_last_group_step.populate(
                             F::from_canonical_usize(group_step),
-                            F::from_canonical_usize(GROUP_SIZE - 1),
+                            F::from_canonical_usize(if is_last_group {
+                                LAST_GROUP_SIZE - 1
+                            } else {
+                                GROUP_SIZE - 1
+                            }),
                         );
                         row.chain_step_bits
                             .iter_mut()
@@ -120,7 +126,7 @@ pub fn generate_trace_rows(
                         row.is_last_group_row
                             .write(F::from_bool(is_last_chain_step && is_last_group_step));
                         row.is_last_sig_row.write(F::from_bool(
-                            is_last_chain_step && is_last_group_step && group_idx == NUM_GROUPS - 1,
+                            is_last_chain_step && is_last_group_step && is_last_group,
                         ));
                         zip(&mut row.merkle_root, trace.pk.merkle_root).for_each(
                             |(cell, value)| {

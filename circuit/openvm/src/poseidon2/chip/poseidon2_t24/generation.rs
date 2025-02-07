@@ -50,7 +50,7 @@ pub fn generate_trace_rows(
     assert_eq!(rows.len(), height);
 
     let (merkle_rows, msg_hash_rows) = rows.split_at_mut(traces.len() * MERKLE_ROWS);
-    rayon::join(
+    join(
         || {
             merkle_rows
                 .par_chunks_mut(MERKLE_ROWS)

@@ -1,4 +1,7 @@
-use crate::poseidon2::hash_sig::{MSG_HASH_FE_LEN, NUM_CHUNKS, PARAM_FE_LEN, TH_HASH_FE_LEN};
+use crate::poseidon2::{
+    chip::decomposition::NUM_MSG_HASH_LIMBS,
+    hash_sig::{MSG_HASH_FE_LEN, PARAM_FE_LEN, TH_HASH_FE_LEN},
+};
 use core::borrow::{Borrow, BorrowMut};
 
 pub const NUM_MAIN_COLS: usize = size_of::<MainCols<u8>>();
@@ -9,7 +12,7 @@ pub struct MainCols<F> {
     pub parameter: [F; PARAM_FE_LEN],
     pub merkle_root: [F; TH_HASH_FE_LEN],
     pub msg_hash: [F; MSG_HASH_FE_LEN],
-    pub x: [F; NUM_CHUNKS],
+    pub msg_hash_limbs: [F; NUM_MSG_HASH_LIMBS],
 }
 
 impl<F> Borrow<MainCols<F>> for [F] {

@@ -1,6 +1,9 @@
 use crate::poseidon2::{
     F,
-    chip::main::column::{MainCols, NUM_MAIN_COLS},
+    chip::{
+        decomposition::LIMB_BITS,
+        main::column::{MainCols, NUM_MAIN_COLS},
+    },
     hash_sig::VerificationTrace,
 };
 use core::{iter::zip, mem::MaybeUninit};
@@ -41,9 +44,11 @@ pub fn generate_trace_rows(
             zip(&mut row.msg_hash, trace.msg_hash).for_each(|(cell, value)| {
                 cell.write(value);
             });
-            zip(&mut row.x, trace.x).for_each(|(cell, value)| {
-                cell.write(F::from_canonical_u16(value));
-            });
+            zip(&mut row.msg_hash_limbs, trace.msg_hash_limbs(LIMB_BITS)).for_each(
+                |(cell, value)| {
+                    cell.write(F::from_canonical_u32(value));
+                },
+            );
         } else {
             row.is_active.write(F::ZERO);
             row.parameter.iter_mut().for_each(|cell| {
@@ -55,7 +60,7 @@ pub fn generate_trace_rows(
             row.msg_hash.iter_mut().for_each(|cell| {
                 cell.write(F::ZERO);
             });
-            row.x.iter_mut().for_each(|cell| {
+            row.msg_hash_limbs.iter_mut().for_each(|cell| {
                 cell.write(F::ZERO);
             });
         }

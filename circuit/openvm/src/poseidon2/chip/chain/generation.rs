@@ -79,7 +79,7 @@ pub fn generate_trace_rows(
                     let is_last_group = group_idx == NUM_GROUPS - 1;
                     let is_last_group_step =
                         group_step == GROUP_SIZE - 1 || i as usize == NUM_CHUNKS - 1;
-                    group_acc[group_idx] = (group_acc[group_idx] << CHUNK_SIZE) + x_i as u32;
+                    group_acc[group_idx] += (x_i as u32) << (group_step * CHUNK_SIZE);
                     zip(
                         x_i..(1 << CHUNK_SIZE) - (x_i != (1 << CHUNK_SIZE) - 1) as u16,
                         rows.by_ref(),
@@ -106,6 +106,11 @@ pub fn generate_trace_rows(
                         zip(&mut row.group_acc, group_acc).for_each(|(cell, value)| {
                             cell.write(F::from_canonical_u32(value));
                         });
+                        row.group_scalar
+                            .write(F::from_canonical_u32(1 << (group_step * CHUNK_SIZE)));
+                        row.group_item.write(F::from_canonical_u32(
+                            (chain_step as u32) << (group_step * CHUNK_SIZE),
+                        ));
                         row.group_step.write(F::from_canonical_usize(group_step));
                         row.is_first_group_step
                             .populate(F::from_canonical_usize(group_step));

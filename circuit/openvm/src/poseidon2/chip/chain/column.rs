@@ -27,6 +27,10 @@ pub struct ChainCols<T> {
     pub group_ind: [T; NUM_GROUPS],
     /// Accumulator of `((((x_{i} << CHUNK_SIZE) + x_{i+1}) << CHUNK_SIZE) + ...) + x_{i + GROUP_SIZE - 1}`
     pub group_acc: [T; NUM_GROUPS],
+    /// TODO
+    pub group_scalar: T,
+    /// TODO
+    pub group_item: T,
     /// Cycling through `0..LAST_GROUP_SIZE` when `group_ind[NUM_GROUPS - 1]`,
     /// otherwise `0..GROUP_SIZE`.
     pub group_step: T,

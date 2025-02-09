@@ -40,7 +40,7 @@ where
 
         builder.push_receive(
             BUS_DECOMPOSITION,
-            iter::empty().chain(local.values).chain(local.acc_bytes),
+            iter::empty().chain(local.values).chain(local.acc_limbs),
             local.mult,
         );
     }

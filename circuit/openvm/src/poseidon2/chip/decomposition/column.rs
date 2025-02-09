@@ -1,3 +1,4 @@
+use crate::poseidon2::chip::decomposition::{F_MS_LIMB_BITS, NUM_LIMBS, NUM_MSG_HASH_LIMBS};
 use core::borrow::{Borrow, BorrowMut};
 
 pub const NUM_DECOMPOSITION_COLS: usize = size_of::<DecompositionCols<u8>>();
@@ -6,9 +7,11 @@ pub const NUM_DECOMPOSITION_COLS: usize = size_of::<DecompositionCols<u8>>();
 pub struct DecompositionCols<T> {
     pub ind: [T; 5],
     pub values: [T; 5],
-    pub value_bytes: [T; 4],
-    pub acc_bytes: [T; 20],
-    pub acc_carries: [T; 20],
+    pub value_ls_limbs: [T; NUM_LIMBS - 1],
+    pub value_ms_limb_bits: [T; F_MS_LIMB_BITS],
+    pub value_ms_limb_auxs: [T; 2],
+    pub acc_limbs: [T; NUM_MSG_HASH_LIMBS],
+    pub carries: [T; NUM_MSG_HASH_LIMBS - 1],
     pub mult: T,
 }
 

@@ -1,16 +1,15 @@
 use crate::poseidon2::{
     F,
-    chip::decomposition::column::{DecompositionCols, NUM_DECOMPOSITION_COLS},
+    chip::decomposition::{
+        F_MS_LIMB, F_MS_LIMB_BITS, LIMB_BITS, LIMB_MASK, NUM_LIMBS, NUM_MSG_HASH_LIMBS,
+        column::{DecompositionCols, NUM_DECOMPOSITION_COLS},
+    },
     hash_sig::{
-        CHUNK_SIZE, LOG_LIFETIME, MODULUS, NUM_CHUNKS, VerificationTrace, encode_tweak_chain,
+        CHUNK_SIZE, LOG_LIFETIME, NUM_CHUNKS, VerificationTrace, encode_tweak_chain,
         encode_tweak_merkle_tree,
     },
 };
-use core::{
-    iter::{repeat, zip},
-    mem::MaybeUninit,
-};
-use num_bigint::BigUint;
+use core::{array::from_fn, iter::zip, mem::MaybeUninit};
 use openvm_stark_backend::{
     p3_field::{FieldAlgebra, PrimeField32},
     p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixViewMut},
@@ -73,10 +72,11 @@ pub fn generate_trace_rows(
                     msg_hash_rows
                         .par_chunks_mut(5)
                         .zip(traces.par_iter().map(|trace| trace.msg_hash))
-                        .for_each(|(rows, msg_hash)| {
-                            let mut acc = BigUint::ZERO;
-                            rows.iter_mut().enumerate().for_each(|(i, row)| {
-                                generate_trace_row(row, &mut acc, msg_hash, i, 1)
+                        .for_each(|(rows, mut msg_hash)| {
+                            msg_hash.reverse();
+                            let mut acc_limbs = Default::default();
+                            rows.iter_mut().enumerate().for_each(|(step, row)| {
+                                generate_trace_row(row, &mut acc_limbs, msg_hash, step, 1)
                             });
                         })
                 },
@@ -87,10 +87,14 @@ pub fn generate_trace_rows(
                                 .par_chunks_mut(2)
                                 .zip(tweak_merkle_path)
                                 .for_each(|(rows, tweak)| {
-                                    let mut acc = BigUint::ZERO;
-                                    rows.iter_mut().enumerate().for_each(|(i, row)| {
+                                    let mut acc_limbs = Default::default();
+                                    rows.iter_mut().enumerate().for_each(|(step, row)| {
                                         generate_trace_row(
-                                            row, &mut acc, tweak, i, /* traces.len() */ 0,
+                                            row,
+                                            &mut acc_limbs,
+                                            tweak,
+                                            step,
+                                            /* traces.len() */ 0,
                                         )
                                     });
                                 })
@@ -103,10 +107,19 @@ pub fn generate_trace_rows(
                                 row.values.iter_mut().for_each(|cell| {
                                     cell.write(F::ZERO);
                                 });
-                                row.value_bytes.iter_mut().for_each(|cell| {
+                                row.value_ms_limb_bits.iter_mut().for_each(|cell| {
                                     cell.write(F::ZERO);
                                 });
-                                row.acc_bytes.iter_mut().for_each(|cell| {
+                                row.value_ms_limb_auxs.iter_mut().for_each(|cell| {
+                                    cell.write(F::ZERO);
+                                });
+                                row.value_ls_limbs.iter_mut().for_each(|cell| {
+                                    cell.write(F::ZERO);
+                                });
+                                row.acc_limbs.iter_mut().for_each(|cell| {
+                                    cell.write(F::ZERO);
+                                });
+                                row.carries.iter_mut().for_each(|cell| {
                                     cell.write(F::ZERO);
                                 });
                                 row.mult.write(F::ZERO);
@@ -122,9 +135,9 @@ pub fn generate_trace_rows(
                 .zip(tweak_chain)
                 .for_each(|(rows, (tweak, mult))| {
                     let _mult = mult.load(Ordering::Relaxed);
-                    let mut acc = BigUint::ZERO;
-                    rows.iter_mut().enumerate().for_each(|(i, row)| {
-                        generate_trace_row(row, &mut acc, tweak, i, /* mult */ 0)
+                    let mut acc_limbs = Default::default();
+                    rows.iter_mut().enumerate().for_each(|(step, row)| {
+                        generate_trace_row(row, &mut acc_limbs, tweak, step, /* mult */ 0)
                     });
                 })
         },
@@ -137,34 +150,76 @@ pub fn generate_trace_rows(
 
 pub fn generate_trace_row<const N: usize>(
     row: &mut DecompositionCols<MaybeUninit<F>>,
-    acc: &mut BigUint,
+    acc_limbs: &mut [u32; NUM_MSG_HASH_LIMBS],
     values: [F; N],
-    i: usize,
+    step: usize,
     mult: usize,
 ) {
-    *acc *= MODULUS;
-    *acc += values[i].as_canonical_u32();
+    let value = values[N - 1 - step].as_canonical_u32();
+    let value_limbs: [_; NUM_LIMBS] = from_fn(|i| (value >> (i * LIMB_BITS)) & LIMB_MASK);
+    let value_ms_limb_bits: [_; F_MS_LIMB_BITS] =
+        from_fn(|i| (value_limbs[NUM_LIMBS - 1] >> i) & 1 == 1);
+    let value_ms_limb_auxs = {
+        let aux0 = value_ms_limb_bits[0] & value_ms_limb_bits[1] & value_ms_limb_bits[1];
+        let aux1 = aux0 & value_ms_limb_bits[3] & !value_ms_limb_bits[4];
+        [aux0, aux1]
+    };
+    let mut carries = [0; NUM_MSG_HASH_LIMBS - 1];
+    *acc_limbs = from_fn(|i| {
+        let sum = if i == 0 {
+            acc_limbs[i] + value_limbs[i]
+        } else if i < NUM_LIMBS - 1 {
+            acc_limbs[i] + value_limbs[i] + carries[i - 1]
+        } else if i < NUM_LIMBS {
+            acc_limbs[i - (NUM_LIMBS - 1)] * F_MS_LIMB
+                + acc_limbs[i]
+                + value_limbs[i]
+                + carries[i - 1]
+        } else {
+            acc_limbs[i - (NUM_LIMBS - 1)] * F_MS_LIMB + acc_limbs[i] + carries[i - 1]
+        };
+        if i < NUM_MSG_HASH_LIMBS - 1 {
+            carries[i] = sum >> LIMB_BITS;
+        }
+        sum & LIMB_MASK
+    });
     row.ind.iter_mut().enumerate().for_each(|(j, cell)| {
-        cell.write(F::from_bool(5 - N + i == j));
+        cell.write(F::from_bool(N - 1 - step == j));
     });
     zip(&mut row.values, values).for_each(|(cell, value)| {
         cell.write(value);
     });
-    zip(
-        &mut row.value_bytes,
-        values[i].as_canonical_u32().to_le_bytes(),
-    )
-    .for_each(|(cell, value)| {
-        cell.write(F::from_canonical_u8(value));
-    });
-    zip(
-        &mut row.acc_bytes,
-        acc.to_bytes_le().into_iter().chain(repeat(0)),
-    )
-    .for_each(|(cell, value)| {
-        cell.write(F::from_canonical_u8(value));
-    });
-    row.mult.write(if i == N - 1 {
+    row.value_ms_limb_bits
+        .iter_mut()
+        .zip(value_ms_limb_bits)
+        .for_each(|(cell, value)| {
+            cell.write(F::from_bool(value));
+        });
+    row.value_ms_limb_auxs
+        .iter_mut()
+        .zip(value_ms_limb_auxs)
+        .for_each(|(cell, value)| {
+            cell.write(F::from_bool(value));
+        });
+    row.value_ls_limbs
+        .iter_mut()
+        .zip(value_limbs)
+        .for_each(|(cell, value)| {
+            cell.write(F::from_canonical_u32(value));
+        });
+    row.acc_limbs
+        .iter_mut()
+        .zip(acc_limbs)
+        .for_each(|(cell, value)| {
+            cell.write(F::from_canonical_u32(*value));
+        });
+    row.carries
+        .iter_mut()
+        .zip(carries)
+        .for_each(|(cell, value)| {
+            cell.write(F::from_canonical_u32(value));
+        });
+    row.mult.write(if step == N - 1 {
         F::from_canonical_usize(mult)
     } else {
         F::ZERO

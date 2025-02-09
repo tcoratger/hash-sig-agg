@@ -106,7 +106,8 @@ where
 
             builder.assert_one(local.is_active);
             builder.assert_one(local.group_ind[0]);
-            builder.assert_eq(local.group_acc[0], local.chain_step::<AB>());
+            builder.assert_eq(local.group_acc[0], local.group_item.into());
+            builder.assert_one(local.group_scalar);
             builder.assert_zero(local.group_step);
         }
 
@@ -132,6 +133,10 @@ where
 {
     cols.group_ind.map(|bit| builder.assert_bool(bit));
     builder.assert_one(AB::Expr::sum(cols.group_ind.into_iter().map(Into::into)));
+    builder.assert_eq(
+        cols.group_item,
+        cols.chain_step::<AB>() * cols.group_scalar.into(),
+    );
     cols.chain_step_bits.map(|bit| builder.assert_bool(bit));
     cols.is_first_group_step.eval(builder, cols.group_step);
     cols.is_last_group_step.eval(
@@ -185,7 +190,7 @@ where
         );
         builder
             .when(local.group_ind[i_minus_1] * next.group_ind[i])
-            .assert_eq(next.group_acc[i], next.chain_step::<AB>());
+            .assert_eq(next.group_acc[i], next.group_item.into());
         builder
             .when(
                 local.group_ind[i]
@@ -193,11 +198,25 @@ where
             )
             .assert_eq(
                 next.group_acc[i],
-                local.group_acc[i].into() * AB::Expr::from_canonical_u32(1 << CHUNK_SIZE)
-                    + next.chain_step::<AB>(),
+                local.group_acc[i].into() + next.group_item.into(),
             );
+        builder.assert_eq(
+            next.group_scalar,
+            select(
+                local.is_last_chain_step::<AB>() - local.is_last_group_row.into(),
+                select(
+                    local.is_last_group_row.into(),
+                    local.group_scalar.into(),
+                    AB::Expr::ONE,
+                ),
+                local.group_scalar * AB::Expr::from_canonical_u32(1 << CHUNK_SIZE),
+            ),
+        );
         builder
             .when(local.group_ind[i] * not(local.is_last_chain_step::<AB>()))
+            .assert_eq(next.group_acc[i], local.group_acc[i]);
+        builder
+            .when(not(next.group_ind[i].into()) * not(local.is_last_sig_row.into()))
             .assert_eq(next.group_acc[i], local.group_acc[i]);
     });
 }

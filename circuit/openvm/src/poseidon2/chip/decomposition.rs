@@ -11,10 +11,24 @@ use openvm_stark_backend::{
     Chip, ChipUsageGetter,
     config::{Domain, StarkGenericConfig},
     p3_commit::PolynomialSpace,
+    p3_field::PrimeField32,
     prover::types::{AirProofInput, AirProofRawInput},
     rap::AnyRap,
 };
 use std::sync::Arc;
+
+pub const LIMB_BITS: usize = 13;
+pub const LIMB_MASK: u32 = (1 << LIMB_BITS) - 1;
+pub const NUM_LIMBS: usize =
+    (F::ORDER_U32.next_power_of_two().ilog2() as usize).div_ceil(LIMB_BITS);
+pub const NUM_MSG_HASH_LIMBS: usize =
+    (5 * F::ORDER_U32.next_power_of_two().ilog2() as usize).div_ceil(LIMB_BITS);
+pub const F_MS_LIMB: u32 = {
+    assert!(F::ORDER_U32 & LIMB_MASK == 1);
+    assert!((F::ORDER_U32 >> LIMB_BITS) & LIMB_MASK == 0);
+    F::ORDER_U32 >> (2 * LIMB_BITS)
+};
+pub const F_MS_LIMB_BITS: usize = F_MS_LIMB.next_power_of_two().ilog2() as usize;
 
 mod air;
 mod column;

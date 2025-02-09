@@ -128,6 +128,21 @@ impl VerificationTrace {
         ]
     }
 
+    pub fn msg_hash_limbs(&self, limb_bits: usize) -> impl Iterator<Item = u32> {
+        let mask = (1 << limb_bits) - 1;
+        let mut big = self
+            .msg_hash
+            .into_iter()
+            .fold(BigUint::ZERO, |acc, v| acc * MODULUS + v.as_canonical_u32());
+        (0..(5 * F::ORDER_U32.next_power_of_two().ilog2() as usize).div_ceil(limb_bits)).map(
+            move |_| {
+                let limb = big.iter_u32_digits().next().unwrap() & mask;
+                big >>= limb_bits;
+                limb
+            },
+        )
+    }
+
     pub fn merkle_tree_leaf(&self, epoch: u32) -> [F; SPONGE_INPUT_SIZE] {
         concat_array![
             self.pk.parameter,

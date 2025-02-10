@@ -15,7 +15,7 @@ use core::{
     iter::zip,
 };
 use openvm_stark_backend::{p3_air::AirBuilder, p3_field::FieldAlgebra};
-use p3_poseidon2_air::Poseidon2Cols;
+use p3_poseidon2_util::air::{Poseidon2Cols, outputs};
 
 pub const NUM_CHAIN_COLS: usize = size_of::<ChainCols<u8>>();
 
@@ -116,10 +116,7 @@ impl<T: Copy> ChainCols<T> {
     where
         T: Into<AB::Expr>,
     {
-        from_fn(|i| {
-            self.perm.ending_full_rounds[HALF_FULL_ROUNDS - 1].post[i].into()
-                + self.perm.inputs[i].into()
-        })
+        from_fn(|i| self.perm.inputs[i].into() + outputs(&self.perm)[i].into())
     }
 }
 

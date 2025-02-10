@@ -134,13 +134,13 @@ impl VerificationTrace {
             .msg_hash
             .into_iter()
             .fold(BigUint::ZERO, |acc, v| acc * MODULUS + v.as_canonical_u32());
-        (0..(5 * F::ORDER_U32.next_power_of_two().ilog2() as usize).div_ceil(limb_bits)).map(
-            move |_| {
+        (0..(MSG_HASH_FE_LEN * F::ORDER_U32.next_power_of_two().ilog2() as usize)
+            .div_ceil(limb_bits))
+            .map(move |_| {
                 let limb = big.iter_u32_digits().next().unwrap() & mask;
                 big >>= limb_bits;
                 limb
-            },
-        )
+            })
     }
 
     pub fn merkle_tree_leaf(&self, epoch: u32) -> [F; SPONGE_INPUT_SIZE] {

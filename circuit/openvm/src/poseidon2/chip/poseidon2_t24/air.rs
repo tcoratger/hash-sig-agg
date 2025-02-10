@@ -87,7 +87,7 @@ where
         ));
 
         // TODO:
-        // 1. Make sure `encoded_tweak_merkle_tree` (`perm.inputs[PARAM_FE_LEN..][..TWEAK_FE_LEN]`) of leaf and path is correct.
+        // 1. Make sure `encoded_tweak_merkle_tree` (`perm.inputs[PARAM_FE_LEN..][..TWEAK_FE_LEN]`) of path is correct.
 
         let main = builder.main();
 
@@ -132,10 +132,10 @@ where
     }
 }
 
+#[inline]
 fn eval_every_row<AB>(builder: &mut AB, cols: &Poseidon2T24Cols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     builder.assert_bool(cols.is_msg);
     builder.assert_bool(cols.is_merkle_leaf);
@@ -163,23 +163,23 @@ where
     builder.assert_bool(cols.is_right);
 }
 
+#[inline]
 fn eval_merkle_transition<AB>(
     builder: &mut AB,
     local: &Poseidon2T24Cols<AB::Var>,
     next: &Poseidon2T24Cols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder = builder.when(local.is_merkle_transition::<AB>());
 
     zip(local.root, next.root).for_each(|(a, b)| builder.assert_eq(a, b));
 }
 
+#[inline]
 fn eval_merkle_leaf_first_row<AB>(builder: &mut AB, cols: &Poseidon2T24Cols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     builder.assert_zero(cols.sponge_step);
     builder.assert_zero(cols.leaf_chunk_idx);
@@ -192,13 +192,13 @@ where
         .for_each(|(a, b)| builder.assert_eq(*a, b));
 }
 
+#[inline]
 fn eval_merkle_leaf_transition<AB>(
     builder: &mut AB,
     local: &Poseidon2T24Cols<AB::Var>,
     next: &Poseidon2T24Cols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder = builder.when(local.is_merkle_leaf_transition);
 
@@ -240,6 +240,7 @@ fn eval_merkle_leaf_transition<AB>(
         })
 }
 
+#[inline]
 fn eval_merkle_leaf_last_row<AB>(
     builder: &mut AB,
     epoch: AB::Expr,
@@ -247,7 +248,6 @@ fn eval_merkle_leaf_last_row<AB>(
     next: &Poseidon2T24Cols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder =
         builder.when(local.is_merkle_leaf.into() - local.is_merkle_leaf_transition.into());
@@ -261,13 +261,13 @@ fn eval_merkle_leaf_last_row<AB>(
         .for_each(|(a, b)| builder.when(not(next.is_right.into())).assert_eq(a, b));
 }
 
+#[inline]
 fn eval_merkle_path_transition<AB>(
     builder: &mut AB,
     local: &Poseidon2T24Cols<AB::Var>,
     next: &Poseidon2T24Cols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder = builder.when(local.is_merkle_path_transition);
 
@@ -283,13 +283,13 @@ fn eval_merkle_path_transition<AB>(
         .for_each(|(a, b)| builder.when(not(next.is_right.into())).assert_eq(a, b));
 }
 
+#[inline]
 fn eval_merkle_path_last_row<AB>(
     builder: &mut AB,
     local: &Poseidon2T24Cols<AB::Var>,
     next: &Poseidon2T24Cols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder =
         builder.when(local.is_merkle_path.into() - local.is_merkle_path_transition.into());
@@ -299,6 +299,7 @@ fn eval_merkle_path_last_row<AB>(
     eval_merkle_leaf_first_row(&mut builder.when(next.is_merkle_leaf), next);
 }
 
+#[inline]
 fn eval_msg_transition<AB>(
     builder: &mut AB,
     encoded_tweak_msg: [AB::Expr; TWEAK_FE_LEN],
@@ -307,7 +308,6 @@ fn eval_msg_transition<AB>(
     next: &Poseidon2T24Cols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder = builder.when(local.is_msg);
 
@@ -324,23 +324,23 @@ fn eval_msg_transition<AB>(
     .for_each(|(a, b)| builder.assert_eq(*a, b));
 }
 
+#[inline]
 fn eval_padding_transition<AB>(
     builder: &mut AB,
     local: &Poseidon2T24Cols<AB::Var>,
     next: &Poseidon2T24Cols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder = builder.when(local.is_padding::<AB>());
 
     builder.assert_one(next.is_padding::<AB>());
 }
 
+#[inline]
 fn receive_msg_hash<AB>(builder: &mut AB, local: &Poseidon2T24Cols<AB::Var>)
 where
     AB: InteractionBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     builder.push_receive(
         BUS_MSG_HASH,
@@ -356,13 +356,13 @@ where
     );
 }
 
+#[inline]
 fn receive_merkle_tree<AB>(
     builder: &mut AB,
     local: &Poseidon2T24Cols<AB::Var>,
     next: &Poseidon2T24Cols<AB::Var>,
 ) where
     AB: InteractionBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     builder.push_receive(
         BUS_MERKLE_TREE,

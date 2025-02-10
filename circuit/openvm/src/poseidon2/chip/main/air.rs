@@ -39,34 +39,54 @@ where
         let local = main.row_slice(0);
         let local: &MainCols<AB::Var> = (*local).borrow();
 
-        builder.push_send(
-            BUS_MSG_HASH,
-            iter::empty().chain(local.parameter).chain(local.msg_hash),
-            local.is_active,
-        );
-        builder.push_send(
-            BUS_CHAIN,
-            iter::empty()
-                .chain(local.parameter.map(Into::into))
-                .chain(local.merkle_root.map(Into::into))
-                .chain(
-                    local
-                        .msg_hash_limbs
-                        .chunks(GROUP_BITS / LIMB_BITS)
-                        .map(|x| {
-                            x.iter().rfold(AB::Expr::ZERO, |acc, x_i| {
-                                acc * AB::Expr::from_canonical_u32(1 << LIMB_BITS) + (*x_i).into()
-                            })
-                        }),
-                ),
-            local.is_active,
-        );
-        builder.push_send(
-            BUS_DECOMPOSITION,
-            iter::empty()
-                .chain(local.msg_hash.into_iter().rev())
-                .chain(local.msg_hash_limbs),
-            local.is_active,
-        );
+        // Interaction
+        send_msg_hash(builder, local);
+        send_chain(builder, local);
+        send_decomposition(builder, local);
     }
+}
+
+#[inline]
+fn send_msg_hash<AB>(builder: &mut AB, cols: &MainCols<AB::Var>)
+where
+    AB: InteractionBuilder<F = F>,
+{
+    builder.push_send(
+        BUS_MSG_HASH,
+        iter::empty().chain(cols.parameter).chain(cols.msg_hash),
+        cols.is_active,
+    );
+}
+
+#[inline]
+fn send_chain<AB>(builder: &mut AB, cols: &MainCols<AB::Var>)
+where
+    AB: InteractionBuilder<F = F>,
+{
+    builder.push_send(
+        BUS_CHAIN,
+        iter::empty()
+            .chain(cols.parameter.map(Into::into))
+            .chain(cols.merkle_root.map(Into::into))
+            .chain(cols.msg_hash_limbs.chunks(GROUP_BITS / LIMB_BITS).map(|x| {
+                x.iter().rfold(AB::Expr::ZERO, |acc, x_i| {
+                    acc * AB::Expr::from_canonical_u32(1 << LIMB_BITS) + (*x_i).into()
+                })
+            })),
+        cols.is_active,
+    );
+}
+
+#[inline]
+fn send_decomposition<AB>(builder: &mut AB, cols: &MainCols<AB::Var>)
+where
+    AB: InteractionBuilder<F = F>,
+{
+    builder.push_send(
+        BUS_DECOMPOSITION,
+        iter::empty()
+            .chain(cols.msg_hash.into_iter().rev())
+            .chain(cols.msg_hash_limbs),
+        cols.is_active,
+    );
 }

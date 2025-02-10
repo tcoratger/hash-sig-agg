@@ -1,12 +1,13 @@
 use crate::poseidon2::{
     F,
     chip::decomposition::{
-        air::DecompositionAir, column::NUM_DECOMPOSITION_COLS, generation::trace_height,
+        air::DecompositionAir,
+        column::NUM_DECOMPOSITION_COLS,
+        generation::{generate_trace_rows, trace_height},
     },
-    hash_sig::VerificationTrace,
+    hash_sig::{MSG_HASH_FE_LEN, VerificationTrace},
 };
 use core::any::type_name;
-use generation::generate_trace_rows;
 use openvm_stark_backend::{
     Chip, ChipUsageGetter,
     config::{Domain, StarkGenericConfig},
@@ -22,7 +23,7 @@ pub const LIMB_MASK: u32 = (1 << LIMB_BITS) - 1;
 pub const NUM_LIMBS: usize =
     (F::ORDER_U32.next_power_of_two().ilog2() as usize).div_ceil(LIMB_BITS);
 pub const NUM_MSG_HASH_LIMBS: usize =
-    (5 * F::ORDER_U32.next_power_of_two().ilog2() as usize).div_ceil(LIMB_BITS);
+    (MSG_HASH_FE_LEN * F::ORDER_U32.next_power_of_two().ilog2() as usize).div_ceil(LIMB_BITS);
 pub const F_MS_LIMB: u32 = {
     assert!(F::ORDER_U32 & LIMB_MASK == 1);
     assert!((F::ORDER_U32 >> LIMB_BITS) & LIMB_MASK == 0);
@@ -45,6 +46,24 @@ impl<'a> DecompositionChip<'a> {
             extra_capacity_bits,
             traces,
         }
+    }
+
+    pub fn generate_air_proof_input_and_range_check_mult<SC: StarkGenericConfig>(
+        self,
+    ) -> (AirProofInput<SC>, Vec<u32>)
+    where
+        Domain<SC>: PolynomialSpace<Val = F>,
+    {
+        let (trace, mult) = generate_trace_rows(self.extra_capacity_bits, self.traces);
+        let api = AirProofInput {
+            cached_mains_pdata: Vec::new(),
+            raw: AirProofRawInput {
+                cached_mains: Vec::new(),
+                common_main: Some(trace),
+                public_values: Vec::new(),
+            },
+        };
+        (api, mult)
     }
 }
 
@@ -75,7 +94,7 @@ where
             cached_mains_pdata: Vec::new(),
             raw: AirProofRawInput {
                 cached_mains: Vec::new(),
-                common_main: Some(generate_trace_rows(self.extra_capacity_bits, self.traces)),
+                common_main: Some(generate_trace_rows(self.extra_capacity_bits, self.traces).0),
                 public_values: Vec::new(),
             },
         }

@@ -11,7 +11,7 @@ use core::{
     borrow::{Borrow, BorrowMut},
 };
 use openvm_stark_backend::p3_air::AirBuilder;
-use p3_poseidon2_air::Poseidon2Cols;
+use p3_poseidon2_util::air::{Poseidon2Cols, outputs};
 
 pub const NUM_POSEIDON2_T24_COLS: usize = size_of::<Poseidon2T24Cols<u8>>();
 
@@ -55,24 +55,18 @@ impl<T: Copy> Poseidon2T24Cols<T> {
     where
         T: Into<AB::Expr>,
     {
-        from_fn(|i| {
-            self.perm.ending_full_rounds[HALF_FULL_ROUNDS - 1].post[i].into()
-                + self.perm.inputs[i].into()
-        })
+        from_fn(|i| outputs(&self.perm)[i].into() + self.perm.inputs[i].into())
     }
 
     pub fn compress_output<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]
     where
         T: Into<AB::Expr>,
     {
-        from_fn(|i| {
-            self.perm.ending_full_rounds[HALF_FULL_ROUNDS - 1].post[i].into()
-                + self.perm.inputs[i].into()
-        })
+        from_fn(|i| outputs(&self.perm)[i].into() + self.perm.inputs[i].into())
     }
 
     pub fn sponge_output(&self) -> [T; 24] {
-        self.perm.ending_full_rounds[HALF_FULL_ROUNDS - 1].post
+        *outputs(&self.perm)
     }
 
     pub fn path_left(&self) -> [T; TH_HASH_FE_LEN] {

@@ -1,12 +1,15 @@
-use crate::poseidon2::{
-    F,
-    chip::{
-        decomposition::LIMB_BITS,
-        main::column::{MainCols, NUM_MAIN_COLS},
+use crate::{
+    poseidon2::{
+        F,
+        chip::{
+            decomposition::LIMB_BITS,
+            main::column::{MainCols, NUM_MAIN_COLS},
+        },
+        hash_sig::VerificationTrace,
     },
-    hash_sig::VerificationTrace,
+    util::{MaybeUninitField, MaybeUninitFieldSlice},
 };
-use core::{iter::zip, mem::MaybeUninit};
+use core::mem::MaybeUninit;
 use openvm_stark_backend::{
     p3_field::FieldAlgebra,
     p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixViewMut},
@@ -35,34 +38,17 @@ pub fn generate_trace_rows(
     rows.par_iter_mut().enumerate().for_each(|(idx, row)| {
         if let Some(trace) = traces.get(idx) {
             row.is_active.write(F::ONE);
-            zip(&mut row.parameter, trace.pk.parameter).for_each(|(cell, value)| {
-                cell.write(value);
-            });
-            zip(&mut row.merkle_root, trace.pk.merkle_root).for_each(|(cell, value)| {
-                cell.write(value);
-            });
-            zip(&mut row.msg_hash, trace.msg_hash).for_each(|(cell, value)| {
-                cell.write(value);
-            });
-            zip(&mut row.msg_hash_limbs, trace.msg_hash_limbs(LIMB_BITS)).for_each(
-                |(cell, value)| {
-                    cell.write(F::from_canonical_u32(value));
-                },
-            );
+            row.parameter.fill_from_slice(&trace.pk.parameter);
+            row.merkle_root.fill_from_slice(&trace.pk.merkle_root);
+            row.msg_hash.fill_from_slice(&trace.msg_hash);
+            row.msg_hash_limbs
+                .fill_from_iter(trace.msg_hash_limbs(LIMB_BITS).map(F::from_canonical_u32));
         } else {
-            row.is_active.write(F::ZERO);
-            row.parameter.iter_mut().for_each(|cell| {
-                cell.write(F::ZERO);
-            });
-            row.merkle_root.iter_mut().for_each(|cell| {
-                cell.write(F::ZERO);
-            });
-            row.msg_hash.iter_mut().for_each(|cell| {
-                cell.write(F::ZERO);
-            });
-            row.msg_hash_limbs.iter_mut().for_each(|cell| {
-                cell.write(F::ZERO);
-            });
+            row.is_active.write_zero();
+            row.parameter.fill_zero();
+            row.merkle_root.fill_zero();
+            row.msg_hash.fill_zero();
+            row.msg_hash_limbs.fill_zero();
         }
     });
 

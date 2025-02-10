@@ -128,10 +128,10 @@ where
     }
 }
 
+#[inline]
 fn eval_every_row<AB>(builder: &mut AB, cols: &ChainCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     cols.group_ind.map(|bit| builder.assert_bool(bit));
     builder.assert_one(AB::Expr::sum(cols.group_ind.into_iter().map(Into::into)));
@@ -157,10 +157,10 @@ where
     builder.assert_bool(cols.is_active);
 }
 
+#[inline]
 fn eval_transition<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &ChainCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     builder.assert_eq(
         next.group_step,
@@ -229,10 +229,10 @@ where
     });
 }
 
+#[inline]
 fn eval_sig_transition<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &ChainCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder = builder.when(not(local.is_last_sig_row.into()));
 
@@ -241,23 +241,23 @@ where
     builder.assert_eq(next.is_active, local.is_active);
 }
 
+#[inline]
 fn eval_sig_last_row<AB>(builder: &mut AB, cols: &ChainCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder = builder.when(cols.is_last_sig_row.into());
 
     builder.assert_eq(cols.sum, F::from_canonical_u16(TARGET_SUM));
 }
 
+#[inline]
 fn eval_chain_transition<AB>(
     builder: &mut AB,
     local: &ChainCols<AB::Var>,
     next: &ChainCols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     let mut builder = builder.when(not(local.is_last_chain_step::<AB>()));
 
@@ -269,10 +269,10 @@ fn eval_chain_transition<AB>(
         .for_each(|(a, b)| builder.assert_eq(a, b));
 }
 
+#[inline]
 fn receive_chain<AB>(builder: &mut AB, local: &ChainCols<AB::Var>)
 where
     AB: InteractionBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     builder.push_receive(
         BUS_CHAIN,
@@ -284,13 +284,13 @@ where
     );
 }
 
+#[inline]
 fn send_merkle_tree<AB>(
     builder: &mut AB,
     encoded_tweak_merkle_leaf: [AB::Expr; TWEAK_FE_LEN],
     local: &ChainCols<AB::Var>,
 ) where
     AB: InteractionBuilder<F = F>,
-    AB::Expr: FieldAlgebra<F = F>,
 {
     // If `chain_step_bits[0]` and `is_last_chain_step`, it means that
     // `one_time_sig_i` is already end of the chain, and it's layouted in the

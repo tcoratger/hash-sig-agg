@@ -1,15 +1,19 @@
-use crate::poseidon2::{
-    F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, RC16, SBOX_DEGREE, SBOX_REGISTERS,
-    chip::chain::{
-        GROUP_SIZE, LAST_GROUP_SIZE, NUM_GROUPS,
-        column::{ChainCols, NUM_CHAIN_COLS},
-        poseidon2::{PARTIAL_ROUNDS, WIDTH},
+use crate::{
+    poseidon2::{
+        F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, RC16, SBOX_DEGREE,
+        SBOX_REGISTERS,
+        chip::chain::{
+            GROUP_SIZE, LAST_GROUP_SIZE, NUM_GROUPS,
+            column::{ChainCols, NUM_CHAIN_COLS},
+            poseidon2::{PARTIAL_ROUNDS, WIDTH},
+        },
+        concat_array,
+        hash_sig::{
+            CHUNK_SIZE, NUM_CHUNKS, TARGET_SUM, TH_HASH_FE_LEN, VerificationTrace,
+            encode_tweak_chain,
+        },
     },
-    concat_array,
-    hash_sig::{
-        CHUNK_SIZE, NUM_CHUNKS, PARAM_FE_LEN, SPONGE_RATE, TARGET_SUM, TH_HASH_FE_LEN,
-        TWEAK_FE_LEN, VerificationTrace, encode_tweak_chain, encode_tweak_merkle_tree,
-    },
+    util::{MaybeUninitField, MaybeUninitFieldSlice},
 };
 use core::{array::from_fn, iter::zip};
 use openvm_stark_backend::{
@@ -17,7 +21,7 @@ use openvm_stark_backend::{
     p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixViewMut},
     p3_maybe_rayon::{iter::repeat, prelude::*},
 };
-use p3_poseidon2_util::air::generate_trace_rows_for_perm;
+use p3_poseidon2_util::air::{generate_trace_rows_for_perm, outputs};
 
 fn input_rows(traces: &[VerificationTrace]) -> impl Iterator<Item = usize> {
     traces.iter().map(|trace| {
@@ -69,13 +73,10 @@ pub fn generate_trace_rows(
             let mut rows = rows.iter_mut();
             let mut sum = 0;
             let mut group_acc = [0u32; NUM_GROUPS];
-            let mut leaf_block_step = 0;
-            let mut leaf_block_and_buf: [F; SPONGE_RATE + TH_HASH_FE_LEN - 1] =
-                concat_array![trace.pk.parameter, encode_tweak_merkle_tree(0, epoch)];
-            let mut leaf_block_ptr = PARAM_FE_LEN + TWEAK_FE_LEN;
             zip(0.., zip(trace.sig.one_time_sig, trace.x)).for_each(
                 |(i, (one_time_sig_i, x_i))| {
                     sum += x_i;
+                    let is_mid_of_chain = x_i != (1 << CHUNK_SIZE) - 1;
                     let group_idx = i as usize / GROUP_SIZE;
                     let group_step = i as usize % GROUP_SIZE;
                     let is_last_group = group_idx == NUM_GROUPS - 1;
@@ -83,44 +84,26 @@ pub fn generate_trace_rows(
                         group_step == GROUP_SIZE - 1 || i as usize == NUM_CHUNKS - 1;
                     group_acc[group_idx] += (x_i as u32) << (group_step * CHUNK_SIZE);
                     zip(
-                        x_i..(1 << CHUNK_SIZE) - (x_i != (1 << CHUNK_SIZE) - 1) as u16,
+                        x_i..(1 << CHUNK_SIZE) - is_mid_of_chain as u16,
                         rows.by_ref(),
                     )
                     .fold(one_time_sig_i, |value, (chain_step, row)| {
                         let encoded_tweak = encode_tweak_chain(epoch, i, chain_step + 1);
-                        let input = concat_array![trace.pk.parameter, encoded_tweak, value];
                         let is_last_chain_step = (chain_step >> 1) & 1 == 1;
-                        generate_trace_rows_for_perm::<
-                            F,
-                            GenericPoseidon2LinearLayersHorizon<WIDTH>,
-                            WIDTH,
-                            SBOX_DEGREE,
-                            SBOX_REGISTERS,
-                            HALF_FULL_ROUNDS,
-                            PARTIAL_ROUNDS,
-                        >(&mut row.perm, input, &RC16);
-                        row.group_ind
-                            .iter_mut()
-                            .enumerate()
-                            .for_each(|(idx, cell)| {
-                                cell.write(F::from_bool(idx == group_idx));
-                            });
-                        zip(&mut row.group_acc, group_acc).for_each(|(cell, value)| {
-                            cell.write(F::from_canonical_u32(value));
-                        });
+                        row.group_ind.fill_from_iter(
+                            (0..NUM_GROUPS).map(|idx| F::from_bool(idx == group_idx)),
+                        );
+                        row.group_acc
+                            .fill_from_iter(group_acc.map(F::from_canonical_u32));
                         row.group_acc_scalar
-                            .write(F::from_canonical_u32(1 << (group_step * CHUNK_SIZE)));
-                        row.group_acc_item.write(F::from_canonical_u32(
-                            (chain_step as u32) << (group_step * CHUNK_SIZE),
-                        ));
-                        row.group_step.write(F::from_canonical_usize(group_step));
-                        row.chain_step_bits
-                            .iter_mut()
-                            .enumerate()
-                            .for_each(|(idx, cell)| {
-                                cell.write(F::from_bool((chain_step >> idx) & 1 == 1));
-                            });
-                        row.sum.write(F::from_canonical_u16(sum));
+                            .write_u32(1 << (group_step * CHUNK_SIZE));
+                        row.group_acc_item
+                            .write_u32((chain_step as u32) << (group_step * CHUNK_SIZE));
+                        row.group_step.write_usize(group_step);
+                        row.chain_step_bits.fill_from_iter(
+                            (0..CHUNK_SIZE).map(|idx| F::from_bool((chain_step >> idx) & 1 == 1)),
+                        );
+                        row.sum.write_u16(sum);
                         row.is_first_group_step
                             .populate(F::from_canonical_usize(group_step));
                         row.is_last_group_step.populate(
@@ -132,41 +115,23 @@ pub fn generate_trace_rows(
                             }),
                         );
                         row.is_last_group_row
-                            .write(F::from_bool(is_last_chain_step && is_last_group_step));
-                        row.is_last_sig_row.write(F::from_bool(
-                            is_last_chain_step && is_last_group_step && is_last_group,
-                        ));
-                        zip(&mut row.merkle_root, trace.pk.merkle_root).for_each(
-                            |(cell, value)| {
-                                cell.write(value);
-                            },
-                        );
-                        let output = if chain_step == (1 << CHUNK_SIZE) - 1 {
-                            value
-                        } else {
-                            from_fn(|i| unsafe {
-                                input[i]
-                                    + row.perm.ending_full_rounds[HALF_FULL_ROUNDS - 1].post[i]
-                                        .assume_init()
-                            })
-                        };
-                        if is_last_chain_step {
-                            leaf_block_and_buf[leaf_block_ptr..leaf_block_ptr + TH_HASH_FE_LEN]
-                                .copy_from_slice(&output);
-                            leaf_block_ptr = (leaf_block_ptr + TH_HASH_FE_LEN) % SPONGE_RATE;
-                        }
-                        if is_last_chain_step && leaf_block_ptr < TH_HASH_FE_LEN {
-                            leaf_block_step += 1;
-                            leaf_block_and_buf
-                                .copy_within(SPONGE_RATE..SPONGE_RATE + leaf_block_ptr, 0);
-                            leaf_block_and_buf[leaf_block_ptr..]
-                                .iter_mut()
-                                .for_each(|v| *v = F::ZERO);
-                        }
-                        row.is_active.write(F::from_bool(
-                            trace.pk.merkle_root != [F::ZERO; TH_HASH_FE_LEN],
-                        ));
-                        output
+                            .write_bool(is_last_chain_step && is_last_group_step);
+                        row.is_last_sig_row
+                            .write_bool(is_last_chain_step && is_last_group_step && is_last_group);
+                        row.merkle_root.fill_from_slice(&trace.pk.merkle_root);
+                        row.is_active
+                            .write_bool(trace.pk.merkle_root != [F::ZERO; TH_HASH_FE_LEN]);
+                        let input = concat_array![trace.pk.parameter, encoded_tweak, value];
+                        generate_trace_rows_for_perm::<
+                            F,
+                            GenericPoseidon2LinearLayersHorizon<WIDTH>,
+                            WIDTH,
+                            SBOX_DEGREE,
+                            SBOX_REGISTERS,
+                            HALF_FULL_ROUNDS,
+                            PARTIAL_ROUNDS,
+                        >(&mut row.perm, input, &RC16);
+                        unsafe { from_fn(|i| input[i] + outputs(&row.perm)[i].assume_init()) }
                     });
                 },
             );

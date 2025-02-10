@@ -1,26 +1,30 @@
-use crate::poseidon2::{
-    F,
-    chip::decomposition::{
-        F_MS_LIMB, F_MS_LIMB_BITS, LIMB_BITS, LIMB_MASK, NUM_LIMBS, NUM_MSG_HASH_LIMBS,
-        column::{DecompositionCols, NUM_DECOMPOSITION_COLS},
+use crate::{
+    poseidon2::{
+        F,
+        chip::decomposition::{
+            F_MS_LIMB, F_MS_LIMB_BITS, LIMB_BITS, LIMB_MASK, NUM_LIMBS, NUM_MSG_HASH_LIMBS,
+            column::{DecompositionCols, NUM_DECOMPOSITION_COLS},
+        },
+        hash_sig::{MSG_HASH_FE_LEN, VerificationTrace},
     },
-    hash_sig::{MSG_HASH_FE_LEN, VerificationTrace},
+    util::MaybeUninitFieldSlice,
 };
-use core::{array::from_fn, iter::zip, mem::MaybeUninit};
+use core::{array::from_fn, iter::repeat_with, mem::MaybeUninit};
 use openvm_stark_backend::{
     p3_field::{FieldAlgebra, PrimeField32},
     p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixViewMut},
     p3_maybe_rayon::prelude::*,
 };
+use std::sync::atomic::{AtomicU32, Ordering};
 
 pub fn trace_height(traces: &[VerificationTrace]) -> usize {
-    (5 * traces.len()).next_power_of_two()
+    (MSG_HASH_FE_LEN * traces.len()).next_power_of_two()
 }
 
 pub fn generate_trace_rows(
     extra_capacity_bits: usize,
     traces: &[VerificationTrace],
-) -> RowMajorMatrix<F> {
+) -> (RowMajorMatrix<F>, Vec<u32>) {
     let height = trace_height(traces);
     let size = height * NUM_DECOMPOSITION_COLS;
     let mut vec = Vec::with_capacity(size << extra_capacity_bits);
@@ -36,52 +40,47 @@ pub fn generate_trace_rows(
     assert!(suffix.is_empty(), "Alignment should match");
     assert_eq!(rows.len(), height);
 
-    let (msg_hash_rows, padding_rows) = rows.split_at_mut(5 * traces.len());
+    let (msg_hash_rows, padding_rows) = rows.split_at_mut(MSG_HASH_FE_LEN * traces.len());
+    let mult = repeat_with(|| AtomicU32::new(0))
+        .take(1 << LIMB_BITS)
+        .collect::<Vec<_>>();
 
     join(
         || {
             msg_hash_rows
-                .par_chunks_mut(5)
+                .par_chunks_mut(MSG_HASH_FE_LEN)
                 .zip(traces.par_iter().map(|trace| trace.msg_hash))
                 .for_each(|(rows, mut msg_hash)| {
-                    msg_hash.reverse();
+                    msg_hash.reverse(); // TODO: Remove when #9 is resolved.
                     let mut acc_limbs = Default::default();
                     rows.iter_mut().enumerate().for_each(|(step, row)| {
-                        generate_trace_row(row, &mut acc_limbs, msg_hash, step, 1)
+                        generate_trace_row(row, &mut acc_limbs, msg_hash, step, &mult);
                     });
                 })
         },
         || {
             padding_rows.iter_mut().for_each(|row| {
-                row.ind.iter_mut().for_each(|cell| {
-                    cell.write(F::ZERO);
-                });
-                row.values.iter_mut().for_each(|cell| {
-                    cell.write(F::ZERO);
-                });
-                row.value_ms_limb_bits.iter_mut().for_each(|cell| {
-                    cell.write(F::ZERO);
-                });
-                row.value_ms_limb_auxs.iter_mut().for_each(|cell| {
-                    cell.write(F::ZERO);
-                });
-                row.value_ls_limbs.iter_mut().for_each(|cell| {
-                    cell.write(F::ZERO);
-                });
-                row.acc_limbs.iter_mut().for_each(|cell| {
-                    cell.write(F::ZERO);
-                });
-                row.carries.iter_mut().for_each(|cell| {
-                    cell.write(F::ZERO);
-                });
-                row.mult.write(F::ZERO);
+                row.ind.fill_zero();
+                row.values.fill_zero();
+                row.value_ls_limbs.fill_zero();
+                row.value_ms_limb_bits.fill_zero();
+                row.value_limb_0_is_zero.populate(F::ZERO);
+                row.value_limb_1_is_zero.populate(F::ZERO);
+                row.value_ms_limb_auxs.fill_zero();
+                row.acc_limbs.fill_zero();
+                row.carries.fill_zero();
             })
         },
     );
 
     unsafe { vec.set_len(size) };
 
-    RowMajorMatrix::new(vec, NUM_DECOMPOSITION_COLS)
+    (
+        RowMajorMatrix::new(vec, NUM_DECOMPOSITION_COLS),
+        mult.into_par_iter()
+            .map(|value| value.load(Ordering::Relaxed))
+            .collect(),
+    )
 }
 
 pub fn generate_trace_row(
@@ -89,15 +88,15 @@ pub fn generate_trace_row(
     acc_limbs: &mut [u32; NUM_MSG_HASH_LIMBS],
     values: [F; MSG_HASH_FE_LEN],
     step: usize,
-    mult: usize,
+    mult: &[AtomicU32],
 ) {
     let value = values[MSG_HASH_FE_LEN - 1 - step].as_canonical_u32();
     let value_limbs: [_; NUM_LIMBS] = from_fn(|i| (value >> (i * LIMB_BITS)) & LIMB_MASK);
     let value_ms_limb_bits: [_; F_MS_LIMB_BITS] =
         from_fn(|i| (value_limbs[NUM_LIMBS - 1] >> i) & 1 == 1);
     let value_ms_limb_auxs = {
-        let aux0 = value_ms_limb_bits[0] & value_ms_limb_bits[1] & value_ms_limb_bits[1];
-        let aux1 = aux0 & value_ms_limb_bits[3] & !value_ms_limb_bits[4];
+        let aux0 = value_ms_limb_bits[4] & value_ms_limb_bits[3] & value_ms_limb_bits[2];
+        let aux1 = aux0 & value_ms_limb_bits[1] & !value_ms_limb_bits[0];
         [aux0, aux1]
     };
     let mut carries = [0; NUM_MSG_HASH_LIMBS - 1];
@@ -119,45 +118,28 @@ pub fn generate_trace_row(
         }
         sum & LIMB_MASK
     });
-    row.ind.iter_mut().enumerate().for_each(|(j, cell)| {
-        cell.write(F::from_bool(MSG_HASH_FE_LEN - 1 - step == j));
-    });
-    zip(&mut row.values, values).for_each(|(cell, value)| {
-        cell.write(value);
-    });
+    value_limbs
+        .into_iter()
+        .take(NUM_LIMBS - 1)
+        .chain(*acc_limbs)
+        .chain(carries)
+        .for_each(|value| {
+            mult[value as usize].fetch_add(1, Ordering::Relaxed);
+        });
+    let value_ls_limbs: [_; NUM_LIMBS - 1] = from_fn(|i| F::from_canonical_u32(value_limbs[i]));
+    row.ind.fill_from_iter(
+        (0..MSG_HASH_FE_LEN).map(|j| F::from_bool(MSG_HASH_FE_LEN - 1 - step == j)),
+    );
+    row.values.fill_from_slice(&values);
+    row.value_ls_limbs.fill_from_slice(&value_ls_limbs);
     row.value_ms_limb_bits
-        .iter_mut()
-        .zip(value_ms_limb_bits)
-        .for_each(|(cell, value)| {
-            cell.write(F::from_bool(value));
-        });
+        .fill_from_iter(value_ms_limb_bits.map(F::from_bool));
+    row.value_limb_0_is_zero.populate(value_ls_limbs[0]);
+    row.value_limb_1_is_zero.populate(value_ls_limbs[1]);
     row.value_ms_limb_auxs
-        .iter_mut()
-        .zip(value_ms_limb_auxs)
-        .for_each(|(cell, value)| {
-            cell.write(F::from_bool(value));
-        });
-    row.value_ls_limbs
-        .iter_mut()
-        .zip(value_limbs)
-        .for_each(|(cell, value)| {
-            cell.write(F::from_canonical_u32(value));
-        });
+        .fill_from_iter(value_ms_limb_auxs.map(F::from_bool));
     row.acc_limbs
-        .iter_mut()
-        .zip(acc_limbs)
-        .for_each(|(cell, value)| {
-            cell.write(F::from_canonical_u32(*value));
-        });
+        .fill_from_iter(acc_limbs.map(F::from_canonical_u32));
     row.carries
-        .iter_mut()
-        .zip(carries)
-        .for_each(|(cell, value)| {
-            cell.write(F::from_canonical_u32(value));
-        });
-    row.mult.write(if step == MSG_HASH_FE_LEN - 1 {
-        F::from_canonical_usize(mult)
-    } else {
-        F::ZERO
-    });
+        .fill_from_iter(carries.map(F::from_canonical_u32));
 }

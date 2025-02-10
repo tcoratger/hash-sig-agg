@@ -36,6 +36,8 @@ pub struct ChainCols<T> {
     pub group_step: T,
     /// Chain step in little-endian bits, in range `0..(1 << CHUNK_SIZE)`.
     pub chain_step_bits: [T; CHUNK_SIZE],
+    /// Sum of `x_i`.
+    pub sum: T,
     /// Whether `group_step == 0`.
     pub is_first_group_step: IsZeroCols<T>,
     /// Whether `group_step == LAST_GROUP_SIZE - 1` when `group_ind[NUM_GROUPS - 1]`,

@@ -10,7 +10,7 @@ use crate::{
                 poseidon2::{PARTIAL_ROUNDS, WIDTH},
             },
         },
-        hash_sig::{CHUNK_SIZE, TWEAK_FE_LEN},
+        hash_sig::{CHUNK_SIZE, TARGET_SUM, TWEAK_FE_LEN},
     },
 };
 use core::{
@@ -99,6 +99,7 @@ where
 
         // When every rows
         eval_every_row(builder, local);
+        eval_sig_last_row(builder, local);
 
         // When first row
         {
@@ -109,6 +110,7 @@ where
             builder.assert_eq(local.group_acc[0], local.group_acc_item.into());
             builder.assert_one(local.group_acc_scalar);
             builder.assert_zero(local.group_step);
+            builder.assert_eq(local.sum, local.chain_step::<AB>());
         }
 
         // When transition
@@ -184,6 +186,18 @@ where
             local.group_acc_scalar * AB::Expr::from_canonical_u32(1 << CHUNK_SIZE),
         ),
     );
+    builder.assert_eq(
+        next.sum,
+        select(
+            local.is_last_chain_step::<AB>() - local.is_last_sig_row.into(),
+            select(
+                local.is_last_sig_row.into(),
+                local.sum.into(),
+                next.sum.into(),
+            ),
+            local.sum.into() + next.chain_step::<AB>(),
+        ),
+    );
     (0..NUM_GROUPS).for_each(|i| {
         let i_minus_1 = i.checked_sub(1).unwrap_or(NUM_GROUPS - 1);
         builder.assert_eq(
@@ -225,6 +239,16 @@ where
     zip(next.parameter(), local.parameter()).for_each(|(a, b)| builder.assert_eq(*a, *b));
     zip(next.merkle_root, local.merkle_root).for_each(|(a, b)| builder.assert_eq(a, b));
     builder.assert_eq(next.is_active, local.is_active);
+}
+
+fn eval_sig_last_row<AB>(builder: &mut AB, cols: &ChainCols<AB::Var>)
+where
+    AB: AirBuilder<F = F>,
+    AB::Expr: FieldAlgebra<F = F>,
+{
+    let mut builder = builder.when(cols.is_last_sig_row.into());
+
+    builder.assert_eq(cols.sum, F::from_canonical_u16(TARGET_SUM));
 }
 
 fn eval_chain_transition<AB>(

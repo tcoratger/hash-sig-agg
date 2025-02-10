@@ -67,6 +67,7 @@ pub fn generate_trace_rows(
         .zip(traces.into_par_iter().chain(dummys))
         .for_each(|(mut rows, trace)| {
             let mut rows = rows.iter_mut();
+            let mut sum = 0;
             let mut group_acc = [0u32; NUM_GROUPS];
             let mut leaf_block_step = 0;
             let mut leaf_block_and_buf: [F; SPONGE_RATE + TH_HASH_FE_LEN - 1] =
@@ -74,6 +75,7 @@ pub fn generate_trace_rows(
             let mut leaf_block_ptr = PARAM_FE_LEN + TWEAK_FE_LEN;
             zip(0.., zip(trace.sig.one_time_sig, trace.x)).for_each(
                 |(i, (one_time_sig_i, x_i))| {
+                    sum += x_i;
                     let group_idx = i as usize / GROUP_SIZE;
                     let group_step = i as usize % GROUP_SIZE;
                     let is_last_group = group_idx == NUM_GROUPS - 1;
@@ -112,6 +114,13 @@ pub fn generate_trace_rows(
                             (chain_step as u32) << (group_step * CHUNK_SIZE),
                         ));
                         row.group_step.write(F::from_canonical_usize(group_step));
+                        row.chain_step_bits
+                            .iter_mut()
+                            .enumerate()
+                            .for_each(|(idx, cell)| {
+                                cell.write(F::from_bool((chain_step >> idx) & 1 == 1));
+                            });
+                        row.sum.write(F::from_canonical_u16(sum));
                         row.is_first_group_step
                             .populate(F::from_canonical_usize(group_step));
                         row.is_last_group_step.populate(
@@ -122,12 +131,6 @@ pub fn generate_trace_rows(
                                 GROUP_SIZE - 1
                             }),
                         );
-                        row.chain_step_bits
-                            .iter_mut()
-                            .enumerate()
-                            .for_each(|(idx, cell)| {
-                                cell.write(F::from_bool((chain_step >> idx) & 1 == 1));
-                            });
                         row.is_last_group_row
                             .write(F::from_bool(is_last_chain_step && is_last_group_step));
                         row.is_last_sig_row.write(F::from_bool(

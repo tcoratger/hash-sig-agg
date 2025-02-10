@@ -34,15 +34,6 @@ where
     AB: InteractionBuilder<F = F> + AirBuilderWithPublicValues,
 {
     fn eval(&self, builder: &mut AB) {
-        // TODO:
-        // 1. Move `TARGET_SUM` check to `ChainChip`.
-        //    builder.assert_eq(
-        //        F::from_canonical_u16(TARGET_SUM),
-        //        AB::Expr::sum(local.x.iter().copied().map(Into::into)),
-        //    );
-        // 1. Send `msg_hash` decomposition in `Poseidon2T24Chip`.
-        // 1. Send chain in `Poseidon2T24Chip`.
-
         let main = builder.main();
 
         let local = main.row_slice(0);

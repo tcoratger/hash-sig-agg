@@ -106,9 +106,9 @@ pub fn generate_trace_rows(
                         zip(&mut row.group_acc, group_acc).for_each(|(cell, value)| {
                             cell.write(F::from_canonical_u32(value));
                         });
-                        row.group_scalar
+                        row.group_acc_scalar
                             .write(F::from_canonical_u32(1 << (group_step * CHUNK_SIZE)));
-                        row.group_item.write(F::from_canonical_u32(
+                        row.group_acc_item.write(F::from_canonical_u32(
                             (chain_step as u32) << (group_step * CHUNK_SIZE),
                         ));
                         row.group_step.write(F::from_canonical_usize(group_step));

@@ -1,9 +1,9 @@
 use crate::{
-    gadget::{is_equal::IsEqualCols, is_zero::IsZeroCols},
+    gadget::{is_equal::IsEqualCols, is_zero::IsZeroCols, select},
     poseidon2::{
         HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::chain::{
-            GROUP_SIZE, NUM_GROUPS,
+            GROUP_SIZE, LAST_GROUP_SIZE, NUM_GROUPS,
             poseidon2::{PARTIAL_ROUNDS, WIDTH},
         },
         hash_sig::{CHUNK_SIZE, PARAM_FE_LEN, TH_HASH_FE_LEN, TWEAK_FE_LEN},
@@ -27,10 +27,10 @@ pub struct ChainCols<T> {
     pub group_ind: [T; NUM_GROUPS],
     /// Accumulator of `((((x_{i} << CHUNK_SIZE) + x_{i+1}) << CHUNK_SIZE) + ...) + x_{i + GROUP_SIZE - 1}`
     pub group_acc: [T; NUM_GROUPS],
-    /// TODO
-    pub group_scalar: T,
-    /// TODO
-    pub group_item: T,
+    /// Equals to `group_step << (CHUNK_SIZE)`.
+    pub group_acc_scalar: T,
+    /// Equals to `group_acc_scalar * chain_step`.
+    pub group_acc_item: T,
     /// Cycling through `0..LAST_GROUP_SIZE` when `group_ind[NUM_GROUPS - 1]`,
     /// otherwise `0..GROUP_SIZE`.
     pub group_step: T,
@@ -52,6 +52,21 @@ pub struct ChainCols<T> {
 }
 
 impl<T: Copy> ChainCols<T> {
+    pub fn group_size<AB: AirBuilder>(&self) -> AB::Expr
+    where
+        T: Into<AB::Expr>,
+    {
+        if GROUP_SIZE == LAST_GROUP_SIZE {
+            AB::Expr::from_canonical_usize(GROUP_SIZE)
+        } else {
+            select(
+                self.group_ind[NUM_GROUPS - 1].into(),
+                AB::Expr::from_canonical_usize(GROUP_SIZE),
+                AB::Expr::from_canonical_usize(LAST_GROUP_SIZE),
+            )
+        }
+    }
+
     pub fn chain_step<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,

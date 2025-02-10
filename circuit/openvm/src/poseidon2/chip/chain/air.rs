@@ -5,7 +5,7 @@ use crate::{
         chip::{
             BUS_CHAIN, BUS_MERKLE_TREE,
             chain::{
-                GROUP_SIZE, LAST_GROUP_SIZE, NUM_GROUPS,
+                NUM_GROUPS,
                 column::{ChainCols, NUM_CHAIN_COLS},
                 poseidon2::{PARTIAL_ROUNDS, WIDTH},
             },
@@ -106,8 +106,8 @@ where
 
             builder.assert_one(local.is_active);
             builder.assert_one(local.group_ind[0]);
-            builder.assert_eq(local.group_acc[0], local.group_item.into());
-            builder.assert_one(local.group_scalar);
+            builder.assert_eq(local.group_acc[0], local.group_acc_item.into());
+            builder.assert_one(local.group_acc_scalar);
             builder.assert_zero(local.group_step);
         }
 
@@ -134,19 +134,15 @@ where
     cols.group_ind.map(|bit| builder.assert_bool(bit));
     builder.assert_one(AB::Expr::sum(cols.group_ind.into_iter().map(Into::into)));
     builder.assert_eq(
-        cols.group_item,
-        cols.chain_step::<AB>() * cols.group_scalar.into(),
+        cols.group_acc_item,
+        cols.chain_step::<AB>() * cols.group_acc_scalar.into(),
     );
     cols.chain_step_bits.map(|bit| builder.assert_bool(bit));
     cols.is_first_group_step.eval(builder, cols.group_step);
     cols.is_last_group_step.eval(
         builder,
         cols.group_step,
-        select(
-            cols.group_ind[NUM_GROUPS - 1].into(),
-            AB::Expr::from_canonical_usize(GROUP_SIZE - 1),
-            AB::Expr::from_canonical_usize(LAST_GROUP_SIZE - 1),
-        ),
+        cols.group_size::<AB>() - AB::Expr::ONE,
     );
     builder.assert_eq(
         cols.is_last_group_row,
@@ -167,15 +163,25 @@ where
     builder.assert_eq(
         next.group_step,
         select(
-            local.is_last_chain_step::<AB>(),
-            local.group_step.into(),
-            (local.group_step.into() + AB::Expr::ONE)
-                - local.is_last_group_step.output
-                    * select(
-                        local.group_ind[NUM_GROUPS - 1].into(),
-                        AB::Expr::from_canonical_usize(GROUP_SIZE),
-                        AB::Expr::from_canonical_usize(LAST_GROUP_SIZE),
-                    ),
+            local.is_last_chain_step::<AB>() - local.is_last_group_row.into(),
+            select(
+                local.is_last_group_row.into(),
+                local.group_step.into(),
+                AB::Expr::ZERO,
+            ),
+            local.group_step.into() + AB::Expr::ONE,
+        ),
+    );
+    builder.assert_eq(
+        next.group_acc_scalar,
+        select(
+            local.is_last_chain_step::<AB>() - local.is_last_group_row.into(),
+            select(
+                local.is_last_group_row.into(),
+                local.group_acc_scalar.into(),
+                AB::Expr::ONE,
+            ),
+            local.group_acc_scalar * AB::Expr::from_canonical_u32(1 << CHUNK_SIZE),
         ),
     );
     (0..NUM_GROUPS).for_each(|i| {
@@ -189,8 +195,8 @@ where
             ),
         );
         builder
-            .when(local.group_ind[i_minus_1] * next.group_ind[i])
-            .assert_eq(next.group_acc[i], next.group_item.into());
+            .when(local.group_ind[i_minus_1] * local.is_last_group_row.into())
+            .assert_eq(next.group_acc[i], next.group_acc_item.into());
         builder
             .when(
                 local.group_ind[i]
@@ -198,20 +204,8 @@ where
             )
             .assert_eq(
                 next.group_acc[i],
-                local.group_acc[i].into() + next.group_item.into(),
+                local.group_acc[i].into() + next.group_acc_item.into(),
             );
-        builder.assert_eq(
-            next.group_scalar,
-            select(
-                local.is_last_chain_step::<AB>() - local.is_last_group_row.into(),
-                select(
-                    local.is_last_group_row.into(),
-                    local.group_scalar.into(),
-                    AB::Expr::ONE,
-                ),
-                local.group_scalar * AB::Expr::from_canonical_u32(1 << CHUNK_SIZE),
-            ),
-        );
         builder
             .when(local.group_ind[i] * not(local.is_last_chain_step::<AB>()))
             .assert_eq(next.group_acc[i], local.group_acc[i]);
@@ -228,9 +222,9 @@ where
 {
     let mut builder = builder.when(not(local.is_last_sig_row.into()));
 
-    zip(local.parameter(), next.parameter()).for_each(|(a, b)| builder.assert_eq(*a, *b));
-    zip(local.merkle_root, next.merkle_root).for_each(|(a, b)| builder.assert_eq(a, b));
-    builder.assert_eq(local.is_active, next.is_active);
+    zip(next.parameter(), local.parameter()).for_each(|(a, b)| builder.assert_eq(*a, *b));
+    zip(next.merkle_root, local.merkle_root).for_each(|(a, b)| builder.assert_eq(a, b));
+    builder.assert_eq(next.is_active, local.is_active);
 }
 
 fn eval_chain_transition<AB>(
@@ -274,8 +268,9 @@ fn send_merkle_tree<AB>(
     AB: InteractionBuilder<F = F>,
     AB::Expr: FieldAlgebra<F = F>,
 {
-    // If `chain_step_bits[0]`, it means the `one_time_sig_i` is already end of
-    // the chain, and it's layouted in the cells of `chain_input`.
+    // If `chain_step_bits[0]` and `is_last_chain_step`, it means that
+    // `one_time_sig_i` is already end of the chain, and it's layouted in the
+    // cells of `chain_input`.
     let chain_output = zip(local.compression_output::<AB>(), local.chain_input::<AB>())
         .map(|(a, b)| select(local.chain_step_bits[0].into(), a, b));
     builder.push_send(

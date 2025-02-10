@@ -4,10 +4,7 @@ use crate::poseidon2::{
         F_MS_LIMB, F_MS_LIMB_BITS, LIMB_BITS, LIMB_MASK, NUM_LIMBS, NUM_MSG_HASH_LIMBS,
         column::{DecompositionCols, NUM_DECOMPOSITION_COLS},
     },
-    hash_sig::{
-        CHUNK_SIZE, LOG_LIFETIME, NUM_CHUNKS, VerificationTrace, encode_tweak_chain,
-        encode_tweak_merkle_tree,
-    },
+    hash_sig::{MSG_HASH_FE_LEN, VerificationTrace},
 };
 use core::{array::from_fn, iter::zip, mem::MaybeUninit};
 use openvm_stark_backend::{
@@ -15,16 +12,13 @@ use openvm_stark_backend::{
     p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixViewMut},
     p3_maybe_rayon::prelude::*,
 };
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub fn trace_height(traces: &[VerificationTrace]) -> usize {
-    (5 * traces.len() + 2 * (NUM_CHUNKS * ((1 << CHUNK_SIZE) - 1) + LOG_LIFETIME))
-        .next_power_of_two()
+    (5 * traces.len()).next_power_of_two()
 }
 
 pub fn generate_trace_rows(
     extra_capacity_bits: usize,
-    epoch: u32,
     traces: &[VerificationTrace],
 ) -> RowMajorMatrix<F> {
     let height = trace_height(traces);
@@ -42,104 +36,46 @@ pub fn generate_trace_rows(
     assert!(suffix.is_empty(), "Alignment should match");
     assert_eq!(rows.len(), height);
 
-    let tweak_merkle_path = (0..LOG_LIFETIME as _)
-        .into_par_iter()
-        .map(|l| encode_tweak_merkle_tree(l + 1, epoch >> (l + 1)));
-    let tweak_chain = (0..NUM_CHUNKS as _)
-        .flat_map(|i| {
-            (1..(1 << CHUNK_SIZE))
-                .map(move |k| (encode_tweak_chain(epoch, i, k), AtomicUsize::new(0)))
-        })
-        .collect::<Vec<_>>();
-    traces.par_iter().for_each(|trace| {
-        trace.x.par_iter().enumerate().for_each(|(i, x_i)| {
-            (x_i + 1..1 << CHUNK_SIZE).for_each(|k| {
-                tweak_chain[i * ((1 << CHUNK_SIZE) - 1) + k as usize - 1]
-                    .1
-                    .fetch_add(1, Ordering::Relaxed);
-            });
-        })
-    });
-
-    let (msg_hash_rows, rest) = rows.split_at_mut(5 * traces.len());
-    let (tweak_chain_rows, rest) = rest.split_at_mut(2 * (NUM_CHUNKS * ((1 << CHUNK_SIZE) - 1)));
-    let (tweak_merkle_path_rows, padding_rows) = rest.split_at_mut(2 * LOG_LIFETIME);
+    let (msg_hash_rows, padding_rows) = rows.split_at_mut(5 * traces.len());
 
     join(
         || {
-            join(
-                || {
-                    msg_hash_rows
-                        .par_chunks_mut(5)
-                        .zip(traces.par_iter().map(|trace| trace.msg_hash))
-                        .for_each(|(rows, mut msg_hash)| {
-                            msg_hash.reverse();
-                            let mut acc_limbs = Default::default();
-                            rows.iter_mut().enumerate().for_each(|(step, row)| {
-                                generate_trace_row(row, &mut acc_limbs, msg_hash, step, 1)
-                            });
-                        })
-                },
-                || {
-                    join(
-                        || {
-                            tweak_merkle_path_rows
-                                .par_chunks_mut(2)
-                                .zip(tweak_merkle_path)
-                                .for_each(|(rows, tweak)| {
-                                    let mut acc_limbs = Default::default();
-                                    rows.iter_mut().enumerate().for_each(|(step, row)| {
-                                        generate_trace_row(
-                                            row,
-                                            &mut acc_limbs,
-                                            tweak,
-                                            step,
-                                            /* traces.len() */ 0,
-                                        )
-                                    });
-                                })
-                        },
-                        || {
-                            padding_rows.iter_mut().for_each(|row| {
-                                row.ind.iter_mut().for_each(|cell| {
-                                    cell.write(F::ZERO);
-                                });
-                                row.values.iter_mut().for_each(|cell| {
-                                    cell.write(F::ZERO);
-                                });
-                                row.value_ms_limb_bits.iter_mut().for_each(|cell| {
-                                    cell.write(F::ZERO);
-                                });
-                                row.value_ms_limb_auxs.iter_mut().for_each(|cell| {
-                                    cell.write(F::ZERO);
-                                });
-                                row.value_ls_limbs.iter_mut().for_each(|cell| {
-                                    cell.write(F::ZERO);
-                                });
-                                row.acc_limbs.iter_mut().for_each(|cell| {
-                                    cell.write(F::ZERO);
-                                });
-                                row.carries.iter_mut().for_each(|cell| {
-                                    cell.write(F::ZERO);
-                                });
-                                row.mult.write(F::ZERO);
-                            })
-                        },
-                    )
-                },
-            )
-        },
-        || {
-            tweak_chain_rows
-                .par_chunks_mut(2)
-                .zip(tweak_chain)
-                .for_each(|(rows, (tweak, mult))| {
-                    let _mult = mult.load(Ordering::Relaxed);
+            msg_hash_rows
+                .par_chunks_mut(5)
+                .zip(traces.par_iter().map(|trace| trace.msg_hash))
+                .for_each(|(rows, mut msg_hash)| {
+                    msg_hash.reverse();
                     let mut acc_limbs = Default::default();
                     rows.iter_mut().enumerate().for_each(|(step, row)| {
-                        generate_trace_row(row, &mut acc_limbs, tweak, step, /* mult */ 0)
+                        generate_trace_row(row, &mut acc_limbs, msg_hash, step, 1)
                     });
                 })
+        },
+        || {
+            padding_rows.iter_mut().for_each(|row| {
+                row.ind.iter_mut().for_each(|cell| {
+                    cell.write(F::ZERO);
+                });
+                row.values.iter_mut().for_each(|cell| {
+                    cell.write(F::ZERO);
+                });
+                row.value_ms_limb_bits.iter_mut().for_each(|cell| {
+                    cell.write(F::ZERO);
+                });
+                row.value_ms_limb_auxs.iter_mut().for_each(|cell| {
+                    cell.write(F::ZERO);
+                });
+                row.value_ls_limbs.iter_mut().for_each(|cell| {
+                    cell.write(F::ZERO);
+                });
+                row.acc_limbs.iter_mut().for_each(|cell| {
+                    cell.write(F::ZERO);
+                });
+                row.carries.iter_mut().for_each(|cell| {
+                    cell.write(F::ZERO);
+                });
+                row.mult.write(F::ZERO);
+            })
         },
     );
 
@@ -148,14 +84,14 @@ pub fn generate_trace_rows(
     RowMajorMatrix::new(vec, NUM_DECOMPOSITION_COLS)
 }
 
-pub fn generate_trace_row<const N: usize>(
+pub fn generate_trace_row(
     row: &mut DecompositionCols<MaybeUninit<F>>,
     acc_limbs: &mut [u32; NUM_MSG_HASH_LIMBS],
-    values: [F; N],
+    values: [F; MSG_HASH_FE_LEN],
     step: usize,
     mult: usize,
 ) {
-    let value = values[N - 1 - step].as_canonical_u32();
+    let value = values[MSG_HASH_FE_LEN - 1 - step].as_canonical_u32();
     let value_limbs: [_; NUM_LIMBS] = from_fn(|i| (value >> (i * LIMB_BITS)) & LIMB_MASK);
     let value_ms_limb_bits: [_; F_MS_LIMB_BITS] =
         from_fn(|i| (value_limbs[NUM_LIMBS - 1] >> i) & 1 == 1);
@@ -184,7 +120,7 @@ pub fn generate_trace_row<const N: usize>(
         sum & LIMB_MASK
     });
     row.ind.iter_mut().enumerate().for_each(|(j, cell)| {
-        cell.write(F::from_bool(N - 1 - step == j));
+        cell.write(F::from_bool(MSG_HASH_FE_LEN - 1 - step == j));
     });
     zip(&mut row.values, values).for_each(|(cell, value)| {
         cell.write(value);
@@ -219,7 +155,7 @@ pub fn generate_trace_row<const N: usize>(
         .for_each(|(cell, value)| {
             cell.write(F::from_canonical_u32(value));
         });
-    row.mult.write(if step == N - 1 {
+    row.mult.write(if step == MSG_HASH_FE_LEN - 1 {
         F::from_canonical_usize(mult)
     } else {
         F::ZERO

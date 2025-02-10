@@ -41,7 +41,7 @@ where
     let main = MainChip::new(extra_capacity_bits, &traces);
     let chain = ChainChip::new(extra_capacity_bits, epoch, &traces);
     let poseidon2_t24 = Poseidon2T24Chip::new(extra_capacity_bits, epoch, encoded_msg, &traces);
-    let decomposition = DecompositionChip::new(extra_capacity_bits, epoch, &traces);
+    let decomposition = DecompositionChip::new(extra_capacity_bits, &traces);
     (
         vec![
             main.air(),

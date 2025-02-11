@@ -1,7 +1,9 @@
 use openvm_stark_backend::p3_field::FieldAlgebra;
 
+pub mod cycle_bits;
 pub mod is_equal;
 pub mod is_zero;
+pub mod lower_rows_filter;
 
 pub fn not<F: FieldAlgebra>(value: F) -> F {
     F::ONE - value

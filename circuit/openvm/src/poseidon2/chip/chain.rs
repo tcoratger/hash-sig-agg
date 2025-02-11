@@ -1,10 +1,7 @@
 use crate::poseidon2::{
     F,
-    chip::{
-        chain::{air::ChainAir, column::NUM_CHAIN_COLS},
-        decomposition::LIMB_BITS,
-    },
-    hash_sig::{CHUNK_SIZE, NUM_CHUNKS, VerificationTrace, encode_tweak_merkle_tree},
+    chip::chain::{air::ChainAir, column::NUM_CHAIN_COLS},
+    hash_sig::{NUM_CHUNKS, VerificationTrace},
 };
 use core::any::type_name;
 use generation::{generate_trace_rows, trace_height};
@@ -17,16 +14,7 @@ use openvm_stark_backend::{
 };
 use std::sync::Arc;
 
-pub const GROUP_BITS: usize = 26;
-pub const GROUP_SIZE: usize = GROUP_BITS / CHUNK_SIZE;
-pub const NUM_GROUPS: usize = NUM_CHUNKS.div_ceil(GROUP_SIZE);
-pub const LAST_GROUP_SIZE: usize = if NUM_CHUNKS % GROUP_SIZE == 0 {
-    GROUP_SIZE
-} else {
-    NUM_CHUNKS % GROUP_SIZE
-};
-
-const __: () = assert!(GROUP_BITS % LIMB_BITS == 0);
+const MAX_CHAIN_STEP_DIFF_BITS: usize = (NUM_CHUNKS / 2).next_power_of_two().ilog2() as usize;
 
 mod air;
 mod column;
@@ -87,7 +75,7 @@ where
                     self.epoch,
                     self.traces,
                 )),
-                public_values: encode_tweak_merkle_tree(0, self.epoch).to_vec(),
+                public_values: Vec::new(),
             },
         }
     }

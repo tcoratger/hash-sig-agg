@@ -9,6 +9,7 @@ pub struct IsZeroCols<T> {
 }
 
 impl<T: Field> IsZeroCols<MaybeUninit<T>> {
+    #[inline]
     pub fn populate(&mut self, input: T) {
         self.output.write(T::from_bool(input.is_zero()));
         self.inv.write(input.try_inverse().unwrap_or(T::ZERO));
@@ -16,6 +17,7 @@ impl<T: Field> IsZeroCols<MaybeUninit<T>> {
 }
 
 impl<T: Copy> IsZeroCols<T> {
+    #[inline]
     pub fn eval<AB: AirBuilder>(&self, builder: &mut AB, input: impl Into<AB::Expr>)
     where
         T: Into<AB::Expr>,

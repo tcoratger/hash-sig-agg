@@ -18,7 +18,7 @@ use openvm_stark_backend::{
 };
 use std::sync::Arc;
 
-pub const LIMB_BITS: usize = 13;
+pub const LIMB_BITS: usize = 12;
 pub const LIMB_MASK: u32 = (1 << LIMB_BITS) - 1;
 pub const NUM_LIMBS: usize =
     (F::ORDER_U32.next_power_of_two().ilog2() as usize).div_ceil(LIMB_BITS);

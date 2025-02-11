@@ -109,6 +109,7 @@ where
         {
             let mut builder = builder.when_first_row();
 
+            builder.assert_zero(local.sig_idx);
             builder.assert_one(local.is_merkle_leaf);
             eval_merkle_leaf_first_row(&mut builder.when(local.is_merkle_leaf), local)
         }
@@ -148,6 +149,7 @@ where
         cols.is_merkle_path_transition,
         cols.is_merkle_path * not(cols.is_last_level.output.into()),
     );
+    cols.is_recevie_merkle_tree.map(|v| builder.assert_bool(v));
     builder
         .assert_bool(cols.is_msg.into() + cols.is_merkle_leaf.into() + cols.is_merkle_path.into());
     cols.is_last_sponge_step.eval(
@@ -174,6 +176,7 @@ fn eval_merkle_transition<AB>(
     let mut builder = builder.when(local.is_merkle_transition::<AB>());
 
     zip(local.root, next.root).for_each(|(a, b)| builder.assert_eq(a, b));
+    builder.assert_eq(local.sig_idx, next.sig_idx);
 }
 
 #[inline]
@@ -296,7 +299,11 @@ fn eval_merkle_path_last_row<AB>(
 
     builder.assert_one(next.is_merkle_leaf.into() + next.is_msg.into());
     zip(local.root, local.compress_output::<AB>()).for_each(|(a, b)| builder.assert_eq(a, b));
+    builder
+        .when(next.is_merkle_leaf)
+        .assert_eq(next.sig_idx, local.sig_idx + F::ONE);
     eval_merkle_leaf_first_row(&mut builder.when(next.is_merkle_leaf), next);
+    builder.when(next.is_msg).assert_eq(next.sig_idx, F::ZERO);
 }
 
 #[inline]
@@ -311,6 +318,9 @@ fn eval_msg_transition<AB>(
 {
     let mut builder = builder.when(local.is_msg);
 
+    builder
+        .when(next.is_msg)
+        .assert_eq(next.sig_idx, local.sig_idx + F::ONE);
     builder.assert_zero(next.is_merkle_leaf.into() + next.is_merkle_path.into());
     zip(
         &local.perm.inputs[RHO_FE_LEN..][..TWEAK_FE_LEN],
@@ -367,36 +377,37 @@ fn receive_merkle_tree<AB>(
     builder.push_receive(
         BUS_MERKLE_TREE,
         iter::empty()
-            .chain(local.root.map(Into::into))
-            .chain([local.leaf_chunk_idx.into()])
+            .chain([local.sig_idx.into(), local.leaf_chunk_idx.into()])
             .chain(
                 local.sponge_block[..TH_HASH_FE_LEN]
                     .iter()
                     .copied()
                     .map(Into::into),
             ),
-        local.is_merkle_leaf * local.leaf_chunk_start_ind[0].into(),
+        local.is_recevie_merkle_tree[0] * local.leaf_chunk_start_ind[0].into(),
     );
     builder.push_receive(
         BUS_MERKLE_TREE,
         iter::empty()
-            .chain(local.root.map(Into::into))
-            .chain([local.leaf_chunk_idx.into() + local.leaf_chunk_start_ind[0].into()])
+            .chain([
+                local.sig_idx.into(),
+                local.leaf_chunk_idx.into() + local.leaf_chunk_start_ind[0].into(),
+            ])
             .chain((0..TH_HASH_FE_LEN).map(|i| {
                 (1..)
                     .take(TH_HASH_FE_LEN)
                     .map(|j| local.leaf_chunk_start_ind[j] * local.sponge_block[j + i])
                     .sum()
             })),
-        local.is_merkle_leaf,
+        local.is_recevie_merkle_tree[1],
     );
     builder.push_receive(
         BUS_MERKLE_TREE,
         iter::empty()
-            .chain(local.root.map(Into::into))
-            .chain([local.leaf_chunk_idx.into()
-                + local.leaf_chunk_start_ind[0].into()
-                + AB::Expr::ONE])
+            .chain([
+                local.sig_idx.into(),
+                local.leaf_chunk_idx.into() + local.leaf_chunk_start_ind[0].into() + AB::Expr::ONE,
+            ])
             .chain((0..TH_HASH_FE_LEN).map(|i| {
                 (1 + TH_HASH_FE_LEN..)
                     .take(TH_HASH_FE_LEN)
@@ -410,6 +421,6 @@ fn receive_merkle_tree<AB>(
                     })
                     .sum()
             })),
-        local.is_merkle_leaf * not(local.is_last_sponge_step.output.into()),
+        local.is_recevie_merkle_tree[2] * not(local.is_last_sponge_step.output.into()),
     );
 }

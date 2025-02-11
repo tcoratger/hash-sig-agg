@@ -5,18 +5,16 @@ use crate::{
         chip::{
             BUS_CHAIN, BUS_MERKLE_TREE,
             chain::{
-                NUM_GROUPS,
                 column::{ChainCols, NUM_CHAIN_COLS},
                 poseidon2::{PARTIAL_ROUNDS, WIDTH},
             },
         },
-        hash_sig::{CHUNK_SIZE, TARGET_SUM, TWEAK_FE_LEN},
+        hash_sig::{CHUNK_SIZE, NUM_CHUNKS, TARGET_SUM},
     },
 };
 use core::{
-    array::from_fn,
     borrow::Borrow,
-    iter::{self, Sum, zip},
+    iter::{self, zip},
 };
 use openvm_stark_backend::{
     air_builders::sub::SubAirBuilder,
@@ -55,11 +53,7 @@ impl BaseAir<F> for ChainAir {
 
 impl PartitionedBaseAir<F> for ChainAir {}
 
-impl BaseAirWithPublicValues<F> for ChainAir {
-    fn num_public_values(&self) -> usize {
-        TWEAK_FE_LEN
-    }
-}
+impl BaseAirWithPublicValues<F> for ChainAir {}
 
 impl<AB> Air<AB> for ChainAir
 where
@@ -88,10 +82,6 @@ where
         // 1. Make sure `encoded_tweak_chain` is correct.
 
         let main = builder.main();
-
-        let encoded_tweak_merkle_leaf: [_; TWEAK_FE_LEN] =
-            from_fn(|i| builder.public_values()[i].into());
-
         let local = main.row_slice(0);
         let next = main.row_slice(1);
         let local: &ChainCols<AB::Var> = (*local).borrow();
@@ -99,18 +89,16 @@ where
 
         // When every rows
         eval_every_row(builder, local);
-        eval_sig_last_row(builder, local);
 
         // When first row
         {
             let mut builder = builder.when_first_row();
 
-            builder.assert_one(local.is_active);
-            builder.assert_one(local.group_ind[0]);
-            builder.assert_eq(local.group_acc[0], local.group_acc_item.into());
-            builder.assert_one(local.group_acc_scalar);
-            builder.assert_zero(local.group_step);
+            builder.assert_one(*local.is_active);
+            builder.assert_zero(local.sig_idx);
+            builder.assert_zero(local.sig_step);
             builder.assert_eq(local.sum, local.chain_step::<AB>());
+            eval_sig_first_row(&mut builder, local);
         }
 
         // When transition
@@ -119,12 +107,14 @@ where
 
             eval_transition(&mut builder, local, next);
             eval_sig_transition(&mut builder, local, next);
+            eval_sig_last_row(&mut builder, local, next);
             eval_chain_transition(&mut builder, local, next);
+            eval_chain_last_row(&mut builder, local, next);
         }
 
         // Interaction
         receive_chain(builder, local);
-        send_merkle_tree(builder, encoded_tweak_merkle_leaf, local);
+        send_merkle_tree(builder, local);
     }
 }
 
@@ -133,28 +123,19 @@ fn eval_every_row<AB>(builder: &mut AB, cols: &ChainCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
 {
-    cols.group_ind.map(|bit| builder.assert_bool(bit));
-    builder.assert_one(AB::Expr::sum(cols.group_ind.into_iter().map(Into::into)));
-    builder.assert_eq(
-        cols.group_acc_item,
-        cols.chain_step::<AB>() * cols.group_acc_scalar.into(),
-    );
-    cols.chain_step_bits.map(|bit| builder.assert_bool(bit));
-    cols.is_first_group_step.eval(builder, cols.group_step);
-    cols.is_last_group_step.eval(
+    cols.is_active.eval_every_row(builder);
+    cols.is_last_sig_row.eval(
         builder,
-        cols.group_step,
-        cols.group_size::<AB>() - AB::Expr::ONE,
+        cols.sig_step,
+        F::from_canonical_u16(TARGET_SUM - 1),
     );
-    builder.assert_eq(
-        cols.is_last_group_row,
-        cols.is_last_chain_step::<AB>() * cols.is_last_group_step.output.into(),
-    );
-    builder.assert_eq(
-        cols.is_last_sig_row,
-        cols.is_last_group_row * cols.group_ind[NUM_GROUPS - 1],
-    );
-    builder.assert_bool(cols.is_active);
+    cols.chain_idx_is_zero.eval(builder, cols.chain_idx);
+    cols.chain_idx_diff_bits.map(|bit| builder.assert_bool(bit));
+    cols.chain_step_bits.map(|bit| builder.assert_bool(bit));
+    builder.assert_bool(cols.is_receiving_chain);
+    builder
+        .when(*cols.is_active)
+        .assert_one(cols.chain_idx_diff_inv * cols.chain_idx_diff::<AB>());
 }
 
 #[inline]
@@ -162,71 +143,39 @@ fn eval_transition<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &Chai
 where
     AB: AirBuilder<F = F>,
 {
+    local.is_active.eval_transition(builder, &next.is_active);
+
     builder.assert_eq(
-        next.group_step,
+        next.sig_idx,
         select(
-            local.is_last_chain_step::<AB>() - local.is_last_group_row.into(),
+            local.is_last_sig_row.output.into(),
+            local.sig_idx.into(),
             select(
-                local.is_last_group_row.into(),
-                local.group_step.into(),
+                (*next.is_active).into(),
                 AB::Expr::ZERO,
+                local.sig_idx + AB::Expr::ONE,
             ),
-            local.group_step.into() + AB::Expr::ONE,
         ),
     );
     builder.assert_eq(
-        next.group_acc_scalar,
+        next.sig_step,
         select(
-            local.is_last_chain_step::<AB>() - local.is_last_group_row.into(),
-            select(
-                local.is_last_group_row.into(),
-                local.group_acc_scalar.into(),
-                AB::Expr::ONE,
-            ),
-            local.group_acc_scalar * AB::Expr::from_canonical_u32(1 << CHUNK_SIZE),
+            local.is_last_sig_row.output.into(),
+            local.sig_step.into() + *local.is_active,
+            AB::Expr::ZERO,
         ),
     );
+}
+
+#[inline]
+fn eval_sig_first_row<AB>(builder: &mut AB, cols: &ChainCols<AB::Var>)
+where
+    AB: AirBuilder<F = F>,
+{
     builder.assert_eq(
-        next.sum,
-        select(
-            local.is_last_chain_step::<AB>() - local.is_last_sig_row.into(),
-            select(
-                local.is_last_sig_row.into(),
-                local.sum.into(),
-                next.sum.into(),
-            ),
-            local.sum.into() + next.chain_step::<AB>(),
-        ),
+        cols.sum,
+        cols.chain_idx * F::from_canonical_usize((1 << CHUNK_SIZE) - 1) + cols.chain_step::<AB>(),
     );
-    (0..NUM_GROUPS).for_each(|i| {
-        let i_minus_1 = i.checked_sub(1).unwrap_or(NUM_GROUPS - 1);
-        builder.assert_eq(
-            next.group_ind[i],
-            select(
-                local.is_last_group_row.into(),
-                local.group_ind[i].into(),
-                local.group_ind[i_minus_1].into(),
-            ),
-        );
-        builder
-            .when(local.group_ind[i_minus_1] * local.is_last_group_row.into())
-            .assert_eq(next.group_acc[i], next.group_acc_item.into());
-        builder
-            .when(
-                local.group_ind[i]
-                    * (local.is_last_chain_step::<AB>() - local.is_last_group_row.into()),
-            )
-            .assert_eq(
-                next.group_acc[i],
-                local.group_acc[i].into() + next.group_acc_item.into(),
-            );
-        builder
-            .when(local.group_ind[i] * not(local.is_last_chain_step::<AB>()))
-            .assert_eq(next.group_acc[i], local.group_acc[i]);
-        builder
-            .when(not(next.group_ind[i].into()) * not(local.is_last_sig_row.into()))
-            .assert_eq(next.group_acc[i], local.group_acc[i]);
-    });
 }
 
 #[inline]
@@ -234,21 +183,20 @@ fn eval_sig_transition<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &
 where
     AB: AirBuilder<F = F>,
 {
-    let mut builder = builder.when(not(local.is_last_sig_row.into()));
+    let mut builder = builder.when(local.is_sig_transition::<AB>());
 
     zip(next.parameter(), local.parameter()).for_each(|(a, b)| builder.assert_eq(*a, *b));
-    zip(next.merkle_root, local.merkle_root).for_each(|(a, b)| builder.assert_eq(a, b));
-    builder.assert_eq(next.is_active, local.is_active);
 }
 
 #[inline]
-fn eval_sig_last_row<AB>(builder: &mut AB, cols: &ChainCols<AB::Var>)
+fn eval_sig_last_row<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &ChainCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
 {
-    let mut builder = builder.when(cols.is_last_sig_row.into());
+    let mut builder = builder.when(local.is_last_sig_row.output);
 
-    builder.assert_eq(cols.sum, F::from_canonical_u16(TARGET_SUM));
+    builder.assert_eq(local.sum, F::from_canonical_u16(TARGET_SUM));
+    eval_sig_first_row(&mut builder, next);
 }
 
 #[inline]
@@ -259,8 +207,11 @@ fn eval_chain_transition<AB>(
 ) where
     AB: AirBuilder<F = F>,
 {
-    let mut builder = builder.when(not(local.is_last_chain_step::<AB>()));
+    let mut builder =
+        builder.when(local.is_sig_transition::<AB>() * not(local.is_last_chain_step::<AB>()));
 
+    builder.assert_eq(next.sum, local.sum);
+    builder.assert_eq(next.chain_idx, local.chain_idx);
     builder.assert_eq(
         next.chain_step::<AB>(),
         local.chain_step::<AB>() + AB::Expr::ONE,
@@ -270,48 +221,55 @@ fn eval_chain_transition<AB>(
 }
 
 #[inline]
+fn eval_chain_last_row<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &ChainCols<AB::Var>)
+where
+    AB: AirBuilder<F = F>,
+{
+    builder.when(local.is_last_chain_step::<AB>()).assert_eq(
+        select(
+            local.is_last_sig_row.output.into(),
+            next.chain_idx.into(),
+            AB::Expr::from_canonical_usize(NUM_CHUNKS),
+        ),
+        local.chain_idx + local.chain_idx_diff::<AB>(),
+    );
+    builder
+        .when(local.is_last_chain_step::<AB>() - local.is_last_sig_row.output.into())
+        .assert_eq(
+            next.sum,
+            local.sum
+                + (local.chain_idx_diff::<AB>() - AB::Expr::ONE)
+                    * F::from_canonical_usize((1 << CHUNK_SIZE) - 1)
+                + next.chain_step::<AB>(),
+        );
+}
+
+#[inline]
 fn receive_chain<AB>(builder: &mut AB, local: &ChainCols<AB::Var>)
 where
     AB: InteractionBuilder<F = F>,
 {
     builder.push_receive(
         BUS_CHAIN,
-        iter::empty()
-            .chain(local.parameter().iter().copied())
-            .chain(local.merkle_root)
-            .chain(local.group_acc),
-        local.is_active.into() * local.is_last_sig_row.into(),
+        [
+            local.sig_idx.into(),
+            local.chain_idx.into(),
+            local.chain_step::<AB>(),
+        ],
+        (*local.is_active).into() * local.is_receiving_chain.into(),
     );
 }
 
 #[inline]
-fn send_merkle_tree<AB>(
-    builder: &mut AB,
-    encoded_tweak_merkle_leaf: [AB::Expr; TWEAK_FE_LEN],
-    local: &ChainCols<AB::Var>,
-) where
+fn send_merkle_tree<AB>(builder: &mut AB, local: &ChainCols<AB::Var>)
+where
     AB: InteractionBuilder<F = F>,
 {
-    // If `chain_step_bits[0]` and `is_last_chain_step`, it means that
-    // `one_time_sig_i` is already end of the chain, and it's layouted in the
-    // cells of `chain_input`.
-    let chain_output = zip(local.compression_output::<AB>(), local.chain_input::<AB>())
-        .map(|(a, b)| select(local.chain_step_bits[0].into(), a, b));
     builder.push_send(
         BUS_MERKLE_TREE,
         iter::empty()
-            .chain(local.merkle_root.map(Into::into))
-            .chain([local.leaf_chunk_idx::<AB>()])
-            .chain(chain_output),
-        local.is_active * local.is_last_chain_step::<AB>(),
-    );
-    builder.push_send(
-        BUS_MERKLE_TREE,
-        iter::empty()
-            .chain(local.merkle_root.map(Into::into))
-            .chain([AB::Expr::ZERO])
-            .chain(local.parameter().iter().copied().map(Into::into))
-            .chain(encoded_tweak_merkle_leaf.map(Into::into)),
-        local.is_active * local.is_last_sig_row.into(),
+            .chain([local.sig_idx.into(), local.chain_idx.into() + AB::Expr::ONE])
+            .chain(local.compression_output::<AB>()),
+        *local.is_active * local.is_last_chain_step::<AB>(),
     );
 }

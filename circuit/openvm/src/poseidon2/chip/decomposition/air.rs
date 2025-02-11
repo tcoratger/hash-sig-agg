@@ -3,18 +3,18 @@ use crate::{
     poseidon2::{
         F,
         chip::{
-            BUS_DECOMPOSITION, BUS_LIMB_RANGE_CHECK,
+            BUS_CHAIN, BUS_DECOMPOSITION, BUS_LIMB_RANGE_CHECK,
             decomposition::{
                 F_MS_LIMB, LIMB_BITS, NUM_LIMBS, NUM_MSG_HASH_LIMBS,
                 column::{DecompositionCols, NUM_DECOMPOSITION_COLS},
             },
         },
-        hash_sig::MSG_HASH_FE_LEN,
+        hash_sig::{CHUNK_SIZE, MSG_HASH_FE_LEN},
     },
 };
 use core::{
     borrow::Borrow,
-    iter::{self, zip},
+    iter::{self, repeat, zip},
 };
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
@@ -51,12 +51,13 @@ where
 
         // When every row
         eval_every_row(builder, local);
+        eval_decomposition_every_row(builder, local);
 
         // When first row
         {
             let mut builder = builder.when_first_row();
 
-            builder.assert_one(local.ind[MSG_HASH_FE_LEN - 1]);
+            builder.assert_one(local.inds[0]);
             eval_acc_first_row(&mut builder, local);
         }
 
@@ -64,11 +65,14 @@ where
         {
             let mut builder = builder.when_transition();
 
+            eval_transition(&mut builder, local, next);
             eval_acc_transition(&mut builder, local, next);
             eval_acc_last_row(&mut builder, local, next);
+            eval_decomposition_transition(&mut builder, local, next);
         }
 
         // Interaction
+        send_chain(builder, local);
         send_limb_range_check(builder, local);
         receive_decomposition(builder, local);
     }
@@ -79,28 +83,54 @@ fn eval_every_row<AB>(builder: &mut AB, cols: &DecompositionCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
 {
-    cols.ind.iter().for_each(|cell| builder.assert_bool(*cell));
-    builder.assert_bool(cols.ind.iter().copied().map(Into::into).sum::<AB::Expr>());
+    cols.inds.eval_every_row(builder);
+
+    const { assert!(F_MS_LIMB == 0b1111000) };
     cols.value_ms_limb_bits
         .iter()
         .for_each(|cell| builder.assert_bool(*cell));
     builder.assert_eq(
         cols.value_ms_limb_auxs[0],
-        cols.value_ms_limb_bits[4] * cols.value_ms_limb_bits[3] * cols.value_ms_limb_bits[2],
+        cols.value_ms_limb_bits[6] * cols.value_ms_limb_bits[5] * cols.value_ms_limb_bits[4],
     );
     builder.assert_eq(
         cols.value_ms_limb_auxs[1],
+        cols.value_ms_limb_bits[3]
+            * not(cols.value_ms_limb_bits[2].into())
+            * not(cols.value_ms_limb_bits[1].into()),
+    );
+    builder.assert_eq(
+        cols.value_ms_limb_auxs[2],
         cols.value_ms_limb_auxs[0]
-            * cols.value_ms_limb_bits[1]
+            * cols.value_ms_limb_auxs[1]
             * not(cols.value_ms_limb_bits[0].into()),
     );
     cols.value_limb_0_is_zero
         .eval(builder, cols.value_ls_limbs[0]);
     cols.value_limb_1_is_zero
         .eval(builder, cols.value_ls_limbs[1]);
+    // MSL <= F_MS_LIMB
+    builder
+        .when(cols.value_ms_limb_auxs[0].into() * cols.value_ms_limb_bits[3].into())
+        .assert_zero(
+            cols.value_ms_limb_bits[0..3]
+                .iter()
+                .copied()
+                .map(Into::into)
+                .sum::<AB::Expr>(),
+        );
+    // When MSL == 31, second most significant limb should be 0.
+    builder
+        .when(cols.value_ms_limb_auxs[2].into())
+        .assert_one(cols.value_limb_1_is_zero.output);
+    // When MSL == 31 and second most significant limb == 0, LSL should be 0.
+    builder
+        .when(cols.value_ms_limb_auxs[2].into() * cols.value_limb_1_is_zero.output.into())
+        .assert_one(cols.value_limb_0_is_zero.output);
+
     (0..MSG_HASH_FE_LEN).for_each(|idx| {
-        builder.when(cols.ind[idx]).assert_eq(
-            cols.values[idx],
+        builder.when(cols.inds[idx]).assert_eq(
+            cols.values[MSG_HASH_FE_LEN - 1 - idx],
             cols.value_ls_limbs
                 .iter()
                 .copied()
@@ -111,21 +141,23 @@ where
                 .sum::<AB::Expr>(),
         );
     });
-    const { assert!(F_MS_LIMB == 0b11110) };
-    // MSL != 31
-    builder.assert_zero(
-        cols.value_ms_limb_auxs[0].into()
-            * cols.value_ms_limb_bits[1].into()
-            * cols.value_ms_limb_bits[0].into(),
-    );
-    // When MSL == 31, second most significant limb should be 0.
+}
+
+#[inline]
+fn eval_transition<AB>(
+    builder: &mut AB,
+    local: &DecompositionCols<AB::Var>,
+    next: &DecompositionCols<AB::Var>,
+) where
+    AB: AirBuilder<F = F>,
+{
+    local.inds.eval_transition(builder, &next.inds);
     builder
-        .when(cols.value_ms_limb_auxs[1].into())
-        .assert_one(cols.value_limb_1_is_zero.output);
-    // When MSL == 31 and second most significant limb == 0, LSL should be 0.
+        .when(local.inds.is_transition::<AB>())
+        .assert_eq(next.sig_idx, local.sig_idx);
     builder
-        .when(cols.value_ms_limb_auxs[1].into() * cols.value_limb_1_is_zero.output.into())
-        .assert_one(cols.value_limb_0_is_zero.output);
+        .when(local.inds.is_last_row_to_active::<AB>(&next.inds))
+        .assert_eq(next.sig_idx, local.sig_idx + AB::Expr::ONE);
 }
 
 #[inline]
@@ -139,7 +171,8 @@ where
             .iter()
             .copied()
             .map(Into::into)
-            .chain([cols.value_ms_limb::<AB>()]),
+            .chain([cols.value_ms_limb::<AB>()])
+            .chain(repeat(AB::Expr::ZERO)),
     )
     .for_each(|(a, b)| builder.assert_eq(a, b))
 }
@@ -152,16 +185,7 @@ fn eval_acc_transition<AB>(
 ) where
     AB: AirBuilder<F = F>,
 {
-    let mut builder = builder.when(not(local.ind[0].into()));
-
-    (1..MSG_HASH_FE_LEN).for_each(|idx| builder.assert_eq(next.ind[idx - 1], local.ind[idx]));
-    builder.when(local.ind[0]).assert_zero(
-        next.ind[..MSG_HASH_FE_LEN - 1]
-            .iter()
-            .copied()
-            .map(Into::into)
-            .sum::<AB::Expr>(),
-    );
+    let mut builder = builder.when(local.is_acc_transition::<AB>());
 
     let f_ms_limb = F::from_canonical_u32(F_MS_LIMB);
     let base = F::from_canonical_u32(1 << LIMB_BITS);
@@ -210,9 +234,41 @@ fn eval_acc_last_row<AB>(
 ) where
     AB: AirBuilder<F = F>,
 {
-    let mut builder = builder.when(local.ind[0]);
+    let mut builder = builder.when(local.is_acc_last_row::<AB>());
 
-    eval_acc_first_row(&mut builder.when(next.ind[MSG_HASH_FE_LEN - 1]), next);
+    zip(next.acc_limbs, local.acc_limbs).for_each(|(a, b)| builder.assert_eq(a, b));
+    eval_acc_first_row(&mut builder.when(next.is_acc_first_row::<AB>()), next);
+}
+
+#[inline]
+fn eval_decomposition_every_row<AB>(builder: &mut AB, local: &DecompositionCols<AB::Var>)
+where
+    AB: AirBuilder<F = F>,
+{
+    let mut builder = builder.when(local.is_decomposition::<AB>());
+
+    builder.assert_eq(
+        zip(local.acc_limbs, local.decomposition_inds())
+            .map(|(limb, ind)| limb * *ind)
+            .sum::<AB::Expr>(),
+        local
+            .decomposition_bits
+            .into_iter()
+            .rfold(AB::Expr::ZERO, |acc, bit| acc.double() + bit),
+    );
+}
+
+#[inline]
+fn eval_decomposition_transition<AB>(
+    builder: &mut AB,
+    local: &DecompositionCols<AB::Var>,
+    next: &DecompositionCols<AB::Var>,
+) where
+    AB: AirBuilder<F = F>,
+{
+    let mut builder = builder.when(local.is_decomposition_transition::<AB>());
+
+    zip(next.acc_limbs, local.acc_limbs).for_each(|(a, b)| builder.assert_eq(a, b));
 }
 
 #[inline]
@@ -226,12 +282,37 @@ where
         .chain(&cols.acc_limbs)
         .chain(&cols.carries)
     {
-        builder.push_send(
-            BUS_LIMB_RANGE_CHECK,
-            [*limb],
-            cols.ind.iter().copied().map(Into::into).sum::<AB::Expr>(),
-        );
+        builder.push_send(BUS_LIMB_RANGE_CHECK, [*limb], cols.is_acc::<AB>());
     }
+}
+
+fn send_chain<AB>(builder: &mut AB, cols: &DecompositionCols<AB::Var>)
+where
+    AB: InteractionBuilder<F = F>,
+{
+    let i_offset = cols
+        .decomposition_inds()
+        .iter()
+        .enumerate()
+        .map(|(idx, ind)| (*ind).into() * F::from_canonical_usize(6 * idx))
+        .sum::<AB::Expr>();
+    cols.decomposition_bits
+        .chunks(CHUNK_SIZE)
+        .enumerate()
+        .for_each(|(chunk_idx, chunk)| {
+            let is_mid_of_chain = not(chunk.iter().copied().map(Into::into).product::<AB::Expr>());
+            builder.push_send(
+                BUS_CHAIN,
+                [
+                    cols.sig_idx.into(),
+                    i_offset.clone() + AB::Expr::from_canonical_usize(chunk_idx),
+                    chunk
+                        .iter()
+                        .rfold(AB::Expr::ZERO, |acc, bit| acc.double() + *bit),
+                ],
+                cols.is_decomposition::<AB>() * is_mid_of_chain,
+            );
+        });
 }
 
 #[inline]
@@ -241,7 +322,7 @@ where
 {
     builder.push_receive(
         BUS_DECOMPOSITION,
-        iter::empty().chain(cols.values).chain(cols.acc_limbs),
-        cols.ind[0],
+        iter::empty().chain([cols.sig_idx]).chain(cols.values),
+        cols.is_acc_last_row::<AB>(),
     );
 }

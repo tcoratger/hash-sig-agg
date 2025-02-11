@@ -7,7 +7,7 @@ use crate::{
         },
         hash_sig::{MSG_HASH_FE_LEN, VerificationTrace},
     },
-    util::MaybeUninitFieldSlice,
+    util::{MaybeUninitField, MaybeUninitFieldSlice},
 };
 use core::{array::from_fn, iter::repeat_with, mem::MaybeUninit};
 use openvm_stark_backend::{
@@ -17,8 +17,10 @@ use openvm_stark_backend::{
 };
 use std::sync::atomic::{AtomicU32, Ordering};
 
+const NUM_ROWS_PER_SIG: usize = MSG_HASH_FE_LEN + NUM_MSG_HASH_LIMBS;
+
 pub fn trace_height(traces: &[VerificationTrace]) -> usize {
-    (MSG_HASH_FE_LEN * traces.len()).next_power_of_two()
+    (NUM_ROWS_PER_SIG * traces.len()).next_power_of_two()
 }
 
 pub fn generate_trace_rows(
@@ -40,7 +42,7 @@ pub fn generate_trace_rows(
     assert!(suffix.is_empty(), "Alignment should match");
     assert_eq!(rows.len(), height);
 
-    let (msg_hash_rows, padding_rows) = rows.split_at_mut(MSG_HASH_FE_LEN * traces.len());
+    let (msg_hash_rows, padding_rows) = rows.split_at_mut(NUM_ROWS_PER_SIG * traces.len());
     let mult = repeat_with(|| AtomicU32::new(0))
         .take(1 << LIMB_BITS)
         .collect::<Vec<_>>();
@@ -48,19 +50,30 @@ pub fn generate_trace_rows(
     join(
         || {
             msg_hash_rows
-                .par_chunks_mut(MSG_HASH_FE_LEN)
+                .par_chunks_mut(NUM_ROWS_PER_SIG)
                 .zip(traces.par_iter().map(|trace| trace.msg_hash))
-                .for_each(|(rows, mut msg_hash)| {
+                .enumerate()
+                .for_each(|(sig_idx, (rows, mut msg_hash))| {
                     msg_hash.reverse(); // TODO: Remove when #9 is resolved.
                     let mut acc_limbs = Default::default();
-                    rows.iter_mut().enumerate().for_each(|(step, row)| {
-                        generate_trace_row(row, &mut acc_limbs, msg_hash, step, &mult);
+                    let (acc_rows, decomposition_rows) = rows.split_at_mut(MSG_HASH_FE_LEN);
+                    acc_rows.iter_mut().enumerate().for_each(|(step, row)| {
+                        row.sig_idx.write_usize(sig_idx);
+                        generate_trace_row_acc(row, &mut acc_limbs, msg_hash, step, &mult)
                     });
+                    decomposition_rows
+                        .iter_mut()
+                        .enumerate()
+                        .for_each(|(step, row)| {
+                            row.sig_idx.write_usize(sig_idx);
+                            generate_trace_row_decomposition(row, &acc_limbs, step)
+                        });
                 })
         },
         || {
             padding_rows.iter_mut().for_each(|row| {
-                row.ind.fill_zero();
+                row.sig_idx.write_zero();
+                row.inds.populate(None);
                 row.values.fill_zero();
                 row.value_ls_limbs.fill_zero();
                 row.value_ms_limb_bits.fill_zero();
@@ -69,6 +82,7 @@ pub fn generate_trace_rows(
                 row.value_ms_limb_auxs.fill_zero();
                 row.acc_limbs.fill_zero();
                 row.carries.fill_zero();
+                row.decomposition_bits.fill_zero();
             })
         },
     );
@@ -83,7 +97,8 @@ pub fn generate_trace_rows(
     )
 }
 
-pub fn generate_trace_row(
+#[inline]
+pub fn generate_trace_row_acc(
     row: &mut DecompositionCols<MaybeUninit<F>>,
     acc_limbs: &mut [u32; NUM_MSG_HASH_LIMBS],
     values: [F; MSG_HASH_FE_LEN],
@@ -95,9 +110,10 @@ pub fn generate_trace_row(
     let value_ms_limb_bits: [_; F_MS_LIMB_BITS] =
         from_fn(|i| (value_limbs[NUM_LIMBS - 1] >> i) & 1 == 1);
     let value_ms_limb_auxs = {
-        let aux0 = value_ms_limb_bits[4] & value_ms_limb_bits[3] & value_ms_limb_bits[2];
-        let aux1 = aux0 & value_ms_limb_bits[1] & !value_ms_limb_bits[0];
-        [aux0, aux1]
+        let aux0 = value_ms_limb_bits[6] & value_ms_limb_bits[5] & value_ms_limb_bits[4];
+        let aux1 = value_ms_limb_bits[3] & !value_ms_limb_bits[2] & !value_ms_limb_bits[1];
+        let aux2 = aux0 & aux1 & !value_ms_limb_bits[0];
+        [aux0, aux1, aux2]
     };
     let mut carries = [0; NUM_MSG_HASH_LIMBS - 1];
     *acc_limbs = from_fn(|i| {
@@ -127,9 +143,7 @@ pub fn generate_trace_row(
             mult[value as usize].fetch_add(1, Ordering::Relaxed);
         });
     let value_ls_limbs: [_; NUM_LIMBS - 1] = from_fn(|i| F::from_canonical_u32(value_limbs[i]));
-    row.ind.fill_from_iter(
-        (0..MSG_HASH_FE_LEN).map(|j| F::from_bool(MSG_HASH_FE_LEN - 1 - step == j)),
-    );
+    row.inds.populate(Some(step));
     row.values.fill_from_slice(&values);
     row.value_ls_limbs.fill_from_slice(&value_ls_limbs);
     row.value_ms_limb_bits
@@ -142,4 +156,27 @@ pub fn generate_trace_row(
         .fill_from_iter(acc_limbs.map(F::from_canonical_u32));
     row.carries
         .fill_from_iter(carries.map(F::from_canonical_u32));
+
+    row.decomposition_bits.fill_zero();
+}
+
+#[inline]
+pub fn generate_trace_row_decomposition(
+    row: &mut DecompositionCols<MaybeUninit<F>>,
+    acc_limbs: &[u32; NUM_MSG_HASH_LIMBS],
+    step: usize,
+) {
+    row.inds.populate(Some(MSG_HASH_FE_LEN + step));
+    row.acc_limbs
+        .fill_from_iter(acc_limbs.map(F::from_canonical_u32));
+    row.decomposition_bits
+        .fill_from_iter((0..LIMB_BITS).map(|i| F::from_bool((acc_limbs[step] >> i) & 1 == 1)));
+
+    row.values.fill_zero();
+    row.value_ls_limbs.fill_zero();
+    row.value_ms_limb_bits.fill_zero();
+    row.value_limb_0_is_zero.populate(F::ZERO);
+    row.value_limb_1_is_zero.populate(F::ZERO);
+    row.value_ms_limb_auxs.fill_zero();
+    row.carries.fill_zero();
 }

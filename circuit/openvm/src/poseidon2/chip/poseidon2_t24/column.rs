@@ -19,11 +19,13 @@ pub const NUM_POSEIDON2_T24_COLS: usize = size_of::<Poseidon2T24Cols<u8>>();
 pub struct Poseidon2T24Cols<T> {
     pub perm:
         Poseidon2Cols<T, WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
+    pub sig_idx: T,
     pub is_msg: T,
     pub is_merkle_leaf: T,
     pub is_merkle_leaf_transition: T,
     pub is_merkle_path: T,
     pub is_merkle_path_transition: T,
+    pub is_recevie_merkle_tree: [T; 3],
     pub root: [T; TH_HASH_FE_LEN],
     pub sponge_step: T,
     pub is_last_sponge_step: IsEqualCols<T>,

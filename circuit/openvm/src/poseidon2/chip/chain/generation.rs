@@ -71,11 +71,7 @@ pub fn generate_trace_rows_sig(
         .for_each(|(sig_step, (row, input))| {
             row.is_active.populate(true);
             row.sig_idx.write_usize(sig_idx);
-            row.sig_step.write_usize(sig_step);
-            row.is_last_sig_row.populate(
-                F::from_canonical_usize(sig_step),
-                F::from_canonical_u16(TARGET_SUM - 1),
-            );
+            row.sig_step.populate(sig_step);
             generate_trace_rows_for_perm::<
                 F,
                 GenericPoseidon2LinearLayersHorizon<WIDTH>,
@@ -111,7 +107,7 @@ pub fn generate_trace_rows_sig(
                 row.chain_step_bits.fill_from_iter(
                     (0..CHUNK_SIZE).map(|idx| F::from_bool((chain_step >> idx) & 1 == 1)),
                 );
-                row.is_receiving_chain.write_bool(chain_step == x_i);
+                row.is_x_i.write_bool(chain_step == x_i);
                 row.sum.write_u32(sum);
             });
             sum + (next_i - i - 1) * MAX_X_I
@@ -134,15 +130,13 @@ pub fn generate_trace_rows_padding(rows: &mut [ChainCols<MaybeUninit<F>>]) {
 pub fn generate_trace_row_padding(row: &mut ChainCols<MaybeUninit<F>>) {
     row.is_active.populate(false);
     row.sig_idx.write_zero();
-    row.sig_step.write_zero();
-    row.is_last_sig_row
-        .populate(F::ZERO, F::from_canonical_u16(TARGET_SUM - 1));
+    row.sig_step.populate(0);
     row.chain_idx.write_zero();
     row.chain_idx_is_zero.populate(F::ZERO);
     row.chain_idx_diff_bits.fill_zero();
     row.chain_idx_diff_inv.write_zero();
     row.chain_step_bits.fill_zero();
-    row.is_receiving_chain.write_zero();
+    row.is_x_i.write_zero();
     row.sum.write_zero();
     generate_trace_rows_for_perm::<
         F,

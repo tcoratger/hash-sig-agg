@@ -1,6 +1,5 @@
 use crate::{gadget::not, util::MaybeUninitFieldSlice};
 use core::{
-    array::from_fn,
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
 };
@@ -13,15 +12,6 @@ use openvm_stark_backend::{
 #[derive(Copy, Clone, Debug)]
 pub struct CycleBits<T, const N: usize> {
     pub bits: [T; N],
-}
-
-impl<T: Default, const N: usize> Default for CycleBits<T, N> {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            bits: from_fn(|_| Default::default()),
-        }
-    }
 }
 
 impl<T, const N: usize> Deref for CycleBits<T, N> {
@@ -66,9 +56,10 @@ impl<T: Copy, const N: usize> CycleBits<T, N> {
     where
         T: Into<AB::Expr>,
     {
-        builder
-            .when(self.is_transition::<AB>())
-            .assert_eq(next.idx::<AB>(), self.idx::<AB>() + AB::Expr::ONE);
+        builder.when(self.is_transition::<AB>()).assert_eq(
+            next.active_idx::<AB>(),
+            self.active_idx::<AB>() + AB::Expr::ONE,
+        );
         builder
             .when(self[N - 1])
             .assert_zero(next[1..].iter().copied().map(Into::into).sum::<AB::Expr>());
@@ -78,7 +69,7 @@ impl<T: Copy, const N: usize> CycleBits<T, N> {
     }
 
     #[inline]
-    pub fn idx<AB: AirBuilder>(&self) -> AB::Expr
+    pub fn active_idx<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
     {

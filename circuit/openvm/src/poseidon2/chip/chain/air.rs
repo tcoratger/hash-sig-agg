@@ -97,6 +97,7 @@ where
 
             builder.assert_one(*local.is_active);
             builder.assert_zero(local.sig_idx);
+            local.sig_step.eval_first_row(&mut builder);
             eval_sig_first_row(&mut builder, local);
         }
 
@@ -124,15 +125,11 @@ where
     AB: AirBuilder<F = F>,
 {
     cols.is_active.eval_every_row(builder);
-    cols.is_last_sig_row.eval(
-        builder,
-        cols.sig_step,
-        F::from_canonical_u16(TARGET_SUM - 1),
-    );
+    cols.sig_step.eval_every_row(builder);
     cols.chain_idx_is_zero.eval(builder, cols.chain_idx);
     cols.chain_idx_diff_bits.map(|bit| builder.assert_bool(bit));
     cols.chain_step_bits.map(|bit| builder.assert_bool(bit));
-    builder.assert_bool(cols.is_receiving_chain);
+    builder.assert_bool(cols.is_x_i);
     builder
         .when(*cols.is_active)
         .assert_one(cols.chain_idx_diff_inv * cols.chain_idx_diff::<AB>());
@@ -144,11 +141,13 @@ where
     AB: AirBuilder<F = F>,
 {
     local.is_active.eval_transition(builder, &next.is_active);
-
+    local
+        .sig_step
+        .eval_transition(&mut builder.when(*local.is_active), &next.sig_step);
     builder.assert_eq(
         next.sig_idx,
         select(
-            local.is_last_sig_row.output.into(),
+            local.is_last_sig_row::<AB>(),
             local.sig_idx.into(),
             select(
                 (*next.is_active).into(),
@@ -164,7 +163,7 @@ fn eval_sig_first_row<AB>(builder: &mut AB, cols: &ChainCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
 {
-    builder.assert_zero(cols.sig_step);
+    builder.assert_one(cols.is_x_i);
     builder.assert_eq(
         cols.sum,
         cols.chain_idx * F::from_canonical_usize((1 << CHUNK_SIZE) - 1) + cols.chain_step::<AB>(),
@@ -178,7 +177,6 @@ where
 {
     let mut builder = builder.when(local.is_sig_transition::<AB>());
 
-    builder.assert_eq(next.sig_step, local.sig_step.into() + AB::Expr::ONE);
     zip(next.parameter(), local.parameter()).for_each(|(a, b)| builder.assert_eq(a, b));
 }
 
@@ -187,10 +185,10 @@ fn eval_sig_last_row<AB>(builder: &mut AB, local: &ChainCols<AB::Var>, next: &Ch
 where
     AB: AirBuilder<F = F>,
 {
-    let mut builder = builder.when(local.is_last_sig_row.output);
+    let mut builder = builder.when(local.is_last_sig_row::<AB>());
 
     builder.assert_eq(local.sum, F::from_canonical_u16(TARGET_SUM));
-    eval_sig_first_row(&mut builder, next);
+    eval_sig_first_row(&mut builder.when(*next.is_active), next);
 }
 
 #[inline]
@@ -210,6 +208,7 @@ fn eval_chain_transition<AB>(
         next.chain_step::<AB>(),
         local.chain_step::<AB>() + AB::Expr::ONE,
     );
+    builder.assert_zero(next.is_x_i);
     zip(next.chain_input(), local.compression_output::<AB>())
         .for_each(|(a, b)| builder.assert_eq(a, b));
 }
@@ -221,14 +220,14 @@ where
 {
     builder.when(local.is_last_chain_step::<AB>()).assert_eq(
         select(
-            local.is_last_sig_row.output.into(),
+            local.is_last_sig_row::<AB>(),
             next.chain_idx.into(),
             AB::Expr::from_canonical_usize(NUM_CHUNKS),
         ),
         local.chain_idx + local.chain_idx_diff::<AB>(),
     );
     builder
-        .when(local.is_last_chain_step::<AB>() - local.is_last_sig_row.output.into())
+        .when(local.is_last_chain_step::<AB>() - local.is_last_sig_row::<AB>())
         .assert_eq(
             next.sum,
             local.sum
@@ -236,6 +235,9 @@ where
                     * F::from_canonical_usize((1 << CHUNK_SIZE) - 1)
                 + next.chain_step::<AB>(),
         );
+    builder
+        .when(local.is_last_chain_step::<AB>() - local.is_last_sig_row::<AB>())
+        .assert_one(next.is_x_i);
 }
 
 #[inline]
@@ -248,7 +250,7 @@ where
         iter::empty()
             .chain([local.sig_idx])
             .chain(local.parameter()),
-        (*local.is_active).into() * local.is_last_sig_row.output.into(),
+        (*local.is_active).into() * local.is_last_sig_row::<AB>(),
     );
 }
 
@@ -264,7 +266,7 @@ where
             local.chain_idx.into(),
             local.chain_step::<AB>(),
         ],
-        (*local.is_active).into() * local.is_receiving_chain.into(),
+        (*local.is_active).into() * local.is_x_i.into(),
     );
 }
 

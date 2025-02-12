@@ -92,15 +92,11 @@ fn generate_trace_row_msg(
     row.is_merkle_path_transition.write_zero();
     row.is_recevie_merkle_tree.fill_zero();
     row.root.fill_from_slice(&trace.pk.merkle_root);
-    row.sponge_step.write_zero();
-    row.is_last_sponge_step
-        .populate(F::ZERO, F::from_canonical_usize(SPONGE_PERM - 1));
+    row.sponge_step.populate(0);
     row.sponge_block.fill_zero();
     row.leaf_chunk_start_ind.fill_zero();
     row.leaf_chunk_idx.write_zero();
-    row.level.write_zero();
-    row.is_last_level
-        .populate(F::ZERO, F::from_canonical_usize(LOG_LIFETIME - 1));
+    row.level.populate(0);
     row.epoch_dec.write_zero();
     row.is_right.write_zero();
     let input = trace.msg_hash_preimage(epoch, encoded_msg);
@@ -153,11 +149,7 @@ fn generate_trace_rows_leaf(
                 row.is_merkle_path.write_zero();
                 row.is_merkle_path_transition.write_zero();
                 row.root.fill_from_slice(&trace.pk.merkle_root);
-                row.sponge_step.write_usize(sponge_step);
-                row.is_last_sponge_step.populate(
-                    F::from_canonical_usize(sponge_step),
-                    F::from_canonical_usize(SPONGE_PERM - 1),
-                );
+                row.sponge_step.populate(sponge_step);
                 row.sponge_block[..sponge_block.len()].fill_from_slice(sponge_block);
                 row.sponge_block[sponge_block.len()..].fill_zero();
                 row.leaf_chunk_start_ind
@@ -166,9 +158,7 @@ fn generate_trace_rows_leaf(
                     }));
                 row.leaf_chunk_idx
                     .write_usize((sponge_step * SPONGE_RATE).div_ceil(TH_HASH_FE_LEN));
-                row.level.write_zero();
-                row.is_last_level
-                    .populate(F::ZERO, F::from_canonical_usize(LOG_LIFETIME - 1));
+                row.level.populate(0);
                 row.epoch_dec.write_zero();
                 row.is_right.write_zero();
                 generate_trace_rows_for_perm::<
@@ -207,17 +197,11 @@ fn generate_trace_rows_path(
                 .write_bool(level != LOG_LIFETIME - 1);
             row.is_recevie_merkle_tree.fill_zero();
             row.root.fill_from_slice(&trace.pk.merkle_root);
-            row.sponge_step.write_zero();
-            row.is_last_sponge_step
-                .populate(F::ZERO, F::from_canonical_usize(SPONGE_PERM - 1));
+            row.sponge_step.populate(0);
             row.sponge_block.fill_zero();
             row.leaf_chunk_start_ind.fill_zero();
             row.leaf_chunk_idx.write_zero();
-            row.level.write_usize(level);
-            row.is_last_level.populate(
-                F::from_canonical_usize(level),
-                F::from_canonical_usize(LOG_LIFETIME - 1),
-            );
+            row.level.populate(level);
             row.epoch_dec.write_u32(epoch_dec);
             row.is_right.write_bool(is_right);
             let mut left_right = [node, sibling];
@@ -268,15 +252,11 @@ pub fn generate_trace_row_padding(row: &mut MerkleTreeCols<MaybeUninit<F>>) {
     row.is_merkle_path_transition.write_zero();
     row.is_recevie_merkle_tree.fill_zero();
     row.root.fill_zero();
-    row.sponge_step.write_zero();
-    row.is_last_sponge_step
-        .populate(F::ZERO, F::from_canonical_usize(SPONGE_PERM - 1));
+    row.sponge_step.populate(0);
     row.sponge_block.fill_zero();
     row.leaf_chunk_start_ind.fill_zero();
     row.leaf_chunk_idx.write_zero();
-    row.level.write_zero();
-    row.is_last_level
-        .populate(F::ZERO, F::from_canonical_usize(LOG_LIFETIME - 1));
+    row.level.populate(0);
     row.epoch_dec.write_zero();
     row.is_right.write_zero();
     generate_trace_rows_for_perm::<

@@ -1,11 +1,11 @@
 use crate::{
-    gadget::{is_equal::IsEqualCols, not},
+    gadget::{cycle_int::CycleInt, not},
     poseidon2::{
         HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::merkle_tree::{PARTIAL_ROUNDS, WIDTH},
         hash_sig::{
-            MSG_FE_LEN, MSG_HASH_FE_LEN, PARAM_FE_LEN, RHO_FE_LEN, SPONGE_RATE, TH_HASH_FE_LEN,
-            TWEAK_FE_LEN,
+            LOG_LIFETIME, MSG_FE_LEN, MSG_HASH_FE_LEN, PARAM_FE_LEN, RHO_FE_LEN, SPONGE_PERM,
+            SPONGE_RATE, TH_HASH_FE_LEN, TWEAK_FE_LEN,
         },
     },
 };
@@ -31,28 +31,29 @@ pub struct MerkleTreeCols<T> {
     pub is_merkle_path_transition: T,
     pub is_recevie_merkle_tree: [T; 3],
     pub root: [T; TH_HASH_FE_LEN],
-    pub sponge_step: T,
-    pub is_last_sponge_step: IsEqualCols<T>,
+    pub sponge_step: CycleInt<T, SPONGE_PERM>,
     pub sponge_block: [T; SPONGE_RATE],
     pub leaf_chunk_start_ind: [T; SPONGE_RATE],
     pub leaf_chunk_idx: T,
-    pub level: T,
-    pub is_last_level: IsEqualCols<T>,
+    pub level: CycleInt<T, LOG_LIFETIME>,
     pub epoch_dec: T,
     pub is_right: T,
 }
 
 impl<T> MerkleTreeCols<T> {
+    #[inline]
     pub fn as_slice(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self as *const _ as *const T, NUM_MERKLE_TREE_COLS) }
     }
 
+    #[inline]
     pub fn as_slice_mut(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self as *mut _ as *mut T, NUM_MERKLE_TREE_COLS) }
     }
 }
 
 impl<T: Copy> MerkleTreeCols<T> {
+    #[inline]
     pub fn is_sig_transition<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -60,6 +61,23 @@ impl<T: Copy> MerkleTreeCols<T> {
         self.is_msg.into() + self.is_merkle_leaf.into() + self.is_merkle_path_transition.into()
     }
 
+    #[inline]
+    pub fn is_last_sponge_step<AB: AirBuilder>(&self) -> AB::Expr
+    where
+        T: Into<AB::Expr>,
+    {
+        self.sponge_step.is_last_step::<AB>()
+    }
+
+    #[inline]
+    pub fn is_last_level<AB: AirBuilder>(&self) -> AB::Expr
+    where
+        T: Into<AB::Expr>,
+    {
+        self.level.is_last_step::<AB>()
+    }
+
+    #[inline]
     pub fn is_padding<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -67,26 +85,32 @@ impl<T: Copy> MerkleTreeCols<T> {
         not(self.is_msg.into() + self.is_merkle_leaf.into() + self.is_merkle_path.into())
     }
 
+    #[inline]
     pub fn msg_hash_parameter(&self) -> [T; PARAM_FE_LEN] {
         from_fn(|i| self.perm.inputs[RHO_FE_LEN + TWEAK_FE_LEN + MSG_FE_LEN + i])
     }
 
+    #[inline]
     pub fn encoded_tweak_msg(&self) -> [T; PARAM_FE_LEN] {
         from_fn(|i| self.perm.inputs[RHO_FE_LEN + i])
     }
 
+    #[inline]
     pub fn encoded_msg(&self) -> [T; PARAM_FE_LEN] {
         from_fn(|i| self.perm.inputs[RHO_FE_LEN + TWEAK_FE_LEN + i])
     }
 
+    #[inline]
     pub fn merkle_leaf_parameter(&self) -> [T; PARAM_FE_LEN] {
         from_fn(|i| self.sponge_block[i])
     }
 
+    #[inline]
     pub fn encoded_tweak_merkle_leaf(&self) -> [T; TWEAK_FE_LEN] {
         from_fn(|i| self.sponge_block[PARAM_FE_LEN + i])
     }
 
+    #[inline]
     pub fn msg_hash<AB: AirBuilder>(&self) -> [AB::Expr; MSG_HASH_FE_LEN]
     where
         T: Into<AB::Expr>,
@@ -94,6 +118,7 @@ impl<T: Copy> MerkleTreeCols<T> {
         from_fn(|i| outputs(&self.perm)[i].into() + self.perm.inputs[i].into())
     }
 
+    #[inline]
     pub fn compress_output<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]
     where
         T: Into<AB::Expr>,
@@ -101,14 +126,17 @@ impl<T: Copy> MerkleTreeCols<T> {
         from_fn(|i| outputs(&self.perm)[i].into() + self.perm.inputs[i].into())
     }
 
+    #[inline]
     pub fn sponge_output(&self) -> [T; 24] {
         *outputs(&self.perm)
     }
 
+    #[inline]
     pub fn path_left(&self) -> [T; TH_HASH_FE_LEN] {
         from_fn(|i| self.perm.inputs[PARAM_FE_LEN + TWEAK_FE_LEN + i])
     }
 
+    #[inline]
     pub fn path_right(&self) -> [T; TH_HASH_FE_LEN] {
         from_fn(|i| self.perm.inputs[PARAM_FE_LEN + TWEAK_FE_LEN + TH_HASH_FE_LEN + i])
     }

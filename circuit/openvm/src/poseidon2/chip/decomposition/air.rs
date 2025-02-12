@@ -294,13 +294,13 @@ where
         .decomposition_inds()
         .iter()
         .enumerate()
-        .map(|(idx, ind)| (*ind).into() * F::from_canonical_usize(6 * idx))
+        .map(|(idx, ind)| (*ind).into() * F::from_canonical_usize((LIMB_BITS / CHUNK_SIZE) * idx))
         .sum::<AB::Expr>();
     cols.decomposition_bits
         .chunks(CHUNK_SIZE)
         .enumerate()
         .for_each(|(chunk_idx, chunk)| {
-            let is_mid_of_chain = not(chunk.iter().copied().map(Into::into).product::<AB::Expr>());
+            let is_chain_mid = not(chunk.iter().copied().map(Into::into).product::<AB::Expr>());
             builder.push_send(
                 Bus::Chain as usize,
                 [
@@ -310,7 +310,7 @@ where
                         .iter()
                         .rfold(AB::Expr::ZERO, |acc, bit| acc.double() + *bit),
                 ],
-                cols.is_decomposition::<AB>() * is_mid_of_chain,
+                cols.is_decomposition::<AB>() * is_chain_mid,
             );
         });
 }

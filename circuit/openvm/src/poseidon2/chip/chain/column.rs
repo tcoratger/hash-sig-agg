@@ -1,12 +1,12 @@
 use crate::{
-    gadget::{is_equal::IsEqualCols, is_zero::IsZeroCols, lower_rows_filter::LowerRowsFilterCols},
+    gadget::{cycle_int::CycleInt, is_zero::IsZeroCols, lower_rows_filter::LowerRowsFilterCols},
     poseidon2::{
         HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::chain::{
             MAX_CHAIN_STEP_DIFF_BITS,
             poseidon2::{PARTIAL_ROUNDS, WIDTH},
         },
-        hash_sig::{CHUNK_SIZE, PARAM_FE_LEN, TH_HASH_FE_LEN, TWEAK_FE_LEN},
+        hash_sig::{CHUNK_SIZE, PARAM_FE_LEN, TARGET_SUM, TH_HASH_FE_LEN, TWEAK_FE_LEN},
     },
 };
 use core::{
@@ -28,9 +28,7 @@ pub struct ChainCols<T> {
     /// Signature index.
     pub sig_idx: T,
     /// Signature step.
-    pub sig_step: T,
-    /// Whether `sig_step == TARGET_SUM - 1`
-    pub is_last_sig_row: IsEqualCols<T>,
+    pub sig_step: CycleInt<T, { TARGET_SUM as usize }>,
     /// Chain index.
     pub chain_idx: T,
     /// Whether `chain_idx == 0`.
@@ -41,30 +39,42 @@ pub struct ChainCols<T> {
     pub chain_idx_diff_inv: T,
     /// Chain step in little-endian bits, in range `0..(1 << CHUNK_SIZE)`.
     pub chain_step_bits: [T; CHUNK_SIZE],
-    /// Chain step in little-endian bits, in range `0..(1 << CHUNK_SIZE)`.
-    pub is_receiving_chain: T,
+    /// Whether `chain_step` is equal to `x_i` or not.
+    pub is_x_i: T,
     /// Sum of `x_i`.
     pub sum: T,
 }
 
 impl<T> ChainCols<T> {
+    #[inline]
     pub fn as_slice(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self as *const _ as *const T, NUM_CHAIN_COLS) }
     }
 
+    #[inline]
     pub fn as_slice_mut(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self as *mut _ as *mut T, NUM_CHAIN_COLS) }
     }
 }
 
 impl<T: Copy> ChainCols<T> {
+    #[inline]
     pub fn is_sig_transition<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
     {
-        (*self.is_active).into() - self.is_last_sig_row.output.into()
+        (*self.is_active).into() - self.is_last_sig_row::<AB>()
     }
 
+    #[inline]
+    pub fn is_last_sig_row<AB: AirBuilder>(&self) -> AB::Expr
+    where
+        T: Into<AB::Expr>,
+    {
+        self.sig_step.is_last_step::<AB>()
+    }
+
+    #[inline]
     pub fn chain_idx_diff<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -74,6 +84,7 @@ impl<T: Copy> ChainCols<T> {
             .rfold(AB::Expr::ZERO, |acc, bit| acc.double() + (*bit).into())
     }
 
+    #[inline]
     pub fn chain_step<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -83,6 +94,7 @@ impl<T: Copy> ChainCols<T> {
     }
 
     /// Returns bool indicating `chain_step == (1 << CHUNKS_SIZE) - 2`
+    #[inline]
     pub fn is_last_chain_step<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -91,18 +103,22 @@ impl<T: Copy> ChainCols<T> {
         self.chain_step_bits[1].into()
     }
 
+    #[inline]
     pub fn parameter(&self) -> [T; PARAM_FE_LEN] {
         from_fn(|i| self.perm.inputs[i])
     }
 
+    #[inline]
     pub fn encoded_tweak_chain(&self) -> [T; TWEAK_FE_LEN] {
         from_fn(|i| self.perm.inputs[PARAM_FE_LEN + i])
     }
 
+    #[inline]
     pub fn chain_input(&self) -> [T; TH_HASH_FE_LEN] {
         from_fn(|i| self.perm.inputs[PARAM_FE_LEN + TWEAK_FE_LEN + i])
     }
 
+    #[inline]
     pub fn compression_output<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]
     where
         T: Into<AB::Expr>,

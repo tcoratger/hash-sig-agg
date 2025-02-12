@@ -39,20 +39,24 @@ pub struct DecompositionCols<T> {
 }
 
 impl<T> DecompositionCols<T> {
+    #[inline]
     pub fn as_slice(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self as *const _ as *const T, NUM_DECOMPOSITION_COLS) }
     }
 
+    #[inline]
     pub fn as_slice_mut(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self as *mut _ as *mut T, NUM_DECOMPOSITION_COLS) }
     }
 }
 
 impl<T: Copy> DecompositionCols<T> {
+    #[inline]
     pub fn acc_inds(&self) -> &[T] {
         &self.inds[..MSG_HASH_FE_LEN]
     }
 
+    #[inline]
     pub fn is_acc<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -64,6 +68,7 @@ impl<T: Copy> DecompositionCols<T> {
             .sum::<AB::Expr>()
     }
 
+    #[inline]
     pub fn is_acc_first_row<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -71,6 +76,7 @@ impl<T: Copy> DecompositionCols<T> {
         self.acc_inds()[0].into()
     }
 
+    #[inline]
     pub fn is_acc_transition<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -83,6 +89,7 @@ impl<T: Copy> DecompositionCols<T> {
             .sum::<AB::Expr>()
     }
 
+    #[inline]
     pub fn is_acc_last_row<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -90,10 +97,12 @@ impl<T: Copy> DecompositionCols<T> {
         self.acc_inds()[MSG_HASH_FE_LEN - 1].into()
     }
 
+    #[inline]
     pub fn decomposition_inds(&self) -> &[T] {
         &self.inds[MSG_HASH_FE_LEN..]
     }
 
+    #[inline]
     pub fn is_decomposition<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -105,6 +114,7 @@ impl<T: Copy> DecompositionCols<T> {
             .sum::<AB::Expr>()
     }
 
+    #[inline]
     pub fn is_decomposition_transition<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
@@ -117,6 +127,7 @@ impl<T: Copy> DecompositionCols<T> {
             .sum::<AB::Expr>()
     }
 
+    #[inline]
     pub fn value_ms_limb<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,

@@ -10,10 +10,7 @@ use crate::{
                 column::{MerkleTreeCols, NUM_MERKLE_TREE_COLS},
             },
         },
-        hash_sig::{
-            LOG_LIFETIME, MSG_FE_LEN, SPONGE_CAPACITY_VALUES, SPONGE_PERM, SPONGE_RATE,
-            TH_HASH_FE_LEN, TWEAK_FE_LEN,
-        },
+        hash_sig::{MSG_FE_LEN, SPONGE_CAPACITY_VALUES, SPONGE_RATE, TH_HASH_FE_LEN, TWEAK_FE_LEN},
     },
 };
 use core::{
@@ -151,26 +148,18 @@ where
     builder.assert_bool(cols.is_merkle_leaf);
     builder.assert_eq(
         cols.is_merkle_leaf_transition,
-        cols.is_merkle_leaf * not(cols.is_last_sponge_step.output.into()),
+        cols.is_merkle_leaf * not(cols.is_last_sponge_step::<AB>()),
     );
     builder.assert_bool(cols.is_merkle_path);
     builder.assert_eq(
         cols.is_merkle_path_transition,
-        cols.is_merkle_path * not(cols.is_last_level.output.into()),
+        cols.is_merkle_path * not(cols.is_last_level::<AB>()),
     );
     cols.is_recevie_merkle_tree.map(|v| builder.assert_bool(v));
     builder
         .assert_bool(cols.is_msg.into() + cols.is_merkle_leaf.into() + cols.is_merkle_path.into());
-    cols.is_last_sponge_step.eval(
-        builder,
-        cols.sponge_step,
-        AB::Expr::from_canonical_usize(SPONGE_PERM - 1),
-    );
-    cols.is_last_level.eval(
-        builder,
-        cols.level,
-        AB::Expr::from_canonical_usize(LOG_LIFETIME - 1),
-    );
+    cols.sponge_step.eval_every_row(builder);
+    cols.level.eval_every_row(builder);
     builder.assert_bool(cols.is_right);
 }
 
@@ -233,7 +222,7 @@ fn eval_merkle_leaf_first_row<AB>(builder: &mut AB, cols: &MerkleTreeCols<AB::Va
 where
     AB: AirBuilder<F = F>,
 {
-    builder.assert_zero(cols.sponge_step);
+    cols.sponge_step.eval_first_row(builder);
     builder.assert_zero(cols.leaf_chunk_idx);
     (0..SPONGE_RATE)
         .step_by(TH_HASH_FE_LEN)
@@ -255,7 +244,9 @@ fn eval_merkle_leaf_transition<AB>(
     let mut builder = builder.when(local.is_merkle_leaf_transition);
 
     builder.assert_one(next.is_merkle_leaf);
-    builder.assert_eq(next.sponge_step, local.sponge_step + AB::Expr::ONE);
+    local
+        .sponge_step
+        .eval_transition(&mut builder, &next.sponge_step);
     (1..TH_HASH_FE_LEN + 1).for_each(|i| {
         (i - 1..TH_HASH_FE_LEN)
             .step_by(TH_HASH_FE_LEN)
@@ -289,7 +280,7 @@ fn eval_merkle_leaf_last_row<AB>(
         builder.when(local.is_merkle_leaf.into() - local.is_merkle_leaf_transition.into());
 
     builder.assert_one(next.is_merkle_path);
-    builder.assert_zero(next.level);
+    next.level.eval_first_row(&mut builder);
     builder.assert_eq(next.epoch_dec, epoch);
     zip(next.path_right(), local.sponge_output())
         .for_each(|(a, b)| builder.when(next.is_right).assert_eq(a, b));
@@ -308,7 +299,7 @@ fn eval_merkle_path_transition<AB>(
     let mut builder = builder.when(local.is_merkle_path_transition);
 
     builder.assert_one(next.is_merkle_path);
-    builder.assert_eq(next.level, local.level + AB::Expr::ONE);
+    local.level.eval_transition(&mut builder, &next.level);
     builder.assert_eq(
         next.epoch_dec.into().double() + local.is_right.into(),
         local.epoch_dec,
@@ -423,6 +414,6 @@ fn receive_merkle_tree<AB>(
                     })
                     .sum()
             })),
-        local.is_recevie_merkle_tree[2] * not(local.is_last_sponge_step.output.into()),
+        local.is_recevie_merkle_tree[2] * not(local.is_last_sponge_step::<AB>()),
     );
 }

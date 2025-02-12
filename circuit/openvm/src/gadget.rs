@@ -1,6 +1,7 @@
 use openvm_stark_backend::p3_field::FieldAlgebra;
 
 pub mod cycle_bits;
+pub mod cycle_int;
 pub mod is_equal;
 pub mod is_zero;
 pub mod lower_rows_filter;

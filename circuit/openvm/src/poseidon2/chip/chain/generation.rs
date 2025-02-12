@@ -7,18 +7,20 @@ use crate::{
             column::{ChainCols, NUM_CHAIN_COLS},
             poseidon2::{PARTIAL_ROUNDS, WIDTH},
         },
-        concat_array,
-        hash_sig::{CHUNK_SIZE, NUM_CHUNKS, TARGET_SUM, VerificationTrace, encode_tweak_chain},
+        hash_sig::{CHUNK_SIZE, NUM_CHUNKS, TARGET_SUM, VerificationTrace},
     },
     util::{MaybeUninitField, MaybeUninitFieldSlice},
 };
-use core::{array::from_fn, iter::zip, mem::MaybeUninit};
+use core::{iter::zip, mem::MaybeUninit};
+use itertools::Itertools;
 use openvm_stark_backend::{
     p3_field::{Field, FieldAlgebra},
     p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixViewMut},
     p3_maybe_rayon::prelude::*,
 };
-use p3_poseidon2_util::air::{generate_trace_rows_for_perm, outputs};
+use p3_poseidon2_util::air::generate_trace_rows_for_perm;
+
+const MAX_X_I: u32 = (1 << CHUNK_SIZE) - 1;
 
 pub fn trace_height(traces: &[VerificationTrace]) -> usize {
     (traces.len() * TARGET_SUM as usize).next_power_of_two()
@@ -26,7 +28,6 @@ pub fn trace_height(traces: &[VerificationTrace]) -> usize {
 
 pub fn generate_trace_rows(
     extra_capacity_bits: usize,
-    epoch: u32,
     traces: &[VerificationTrace],
 ) -> RowMajorMatrix<F> {
     let height = trace_height(traces);
@@ -43,81 +44,90 @@ pub fn generate_trace_rows(
 
     let (rows, padding_rows) = rows.split_at_mut(traces.len() * TARGET_SUM as usize);
 
-    rows.par_chunks_mut(TARGET_SUM as usize)
-        .zip(traces)
-        .enumerate()
-        .for_each(|(sig_idx, (rows, trace))| {
-            let mut rows = rows.iter_mut();
-            let mut sig_step = 0..;
-            let mut sum = 0;
-            let mut next_i = trace
-                .x
-                .iter()
+    join(
+        || {
+            rows.par_chunks_mut(TARGET_SUM as usize)
+                .zip(traces)
                 .enumerate()
-                .filter(|(_, x_i)| **x_i != (1 << CHUNK_SIZE) - 1)
-                .map(|(i, _)| i as u16)
-                .skip(1)
-                .chain([NUM_CHUNKS as u16]);
-            zip(0.., zip(trace.sig.one_time_sig, trace.x)).for_each(
-                |(i, (one_time_sig_i, x_i))| {
-                    sum += x_i;
-                    let i_diff = (x_i != (1 << CHUNK_SIZE) - 1)
-                        .then(|| next_i.next().unwrap() - i)
-                        .unwrap_or_default();
-                    zip(x_i..(1 << CHUNK_SIZE) - 1, rows.by_ref()).fold(
-                        one_time_sig_i,
-                        |value, (chain_step, row)| {
-                            let sig_step = sig_step.next().unwrap();
-                            row.is_active.populate(true);
-                            row.sig_idx.write_usize(sig_idx);
-                            row.sig_step.write_u16(sig_step);
-                            row.is_last_sig_row.populate(
-                                F::from_canonical_u16(sig_step),
-                                F::from_canonical_u16(TARGET_SUM - 1),
-                            );
-                            row.chain_idx.write_u16(i);
-                            row.chain_idx_is_zero.populate(F::from_canonical_u16(i));
-                            row.chain_idx_diff_bits.fill_from_iter(
-                                (0..MAX_CHAIN_STEP_DIFF_BITS)
-                                    .map(|idx| F::from_bool((i_diff >> idx) & 1 == 1)),
-                            );
-                            row.chain_idx_diff_inv.write_f(match i_diff {
-                                1 => F::ONE,
-                                2 => F::ONE.halve(),
-                                _ => F::from_canonical_u16(i_diff).inverse(),
-                            });
-                            row.chain_step_bits.fill_from_iter(
-                                (0..CHUNK_SIZE)
-                                    .map(|idx| F::from_bool((chain_step >> idx) & 1 == 1)),
-                            );
-                            row.is_receiving_chain.write_bool(chain_step == x_i);
-                            row.sum.write_u16(sum);
-                            let encoded_tweak = encode_tweak_chain(epoch, i, chain_step + 1);
-                            let input = concat_array![trace.pk.parameter, encoded_tweak, value];
-                            generate_trace_rows_for_perm::<
-                                F,
-                                GenericPoseidon2LinearLayersHorizon<WIDTH>,
-                                WIDTH,
-                                SBOX_DEGREE,
-                                SBOX_REGISTERS,
-                                HALF_FULL_ROUNDS,
-                                PARTIAL_ROUNDS,
-                            >(&mut row.perm, input, &RC16);
-                            unsafe { from_fn(|i| input[i] + outputs(&row.perm)[i].assume_init()) }
-                        },
-                    );
-                },
-            );
-            assert!(rows.next().is_none());
-        });
-
-    padding_rows
-        .par_iter_mut()
-        .for_each(generate_trace_row_padding);
+                .for_each(|(sig_idx, (rows, trace))| generate_trace_rows_sig(rows, sig_idx, trace));
+        },
+        || generate_trace_rows_padding(padding_rows),
+    );
 
     unsafe { vec.set_len(size) };
 
     RowMajorMatrix::new(vec, NUM_CHAIN_COLS)
+}
+
+#[inline]
+pub fn generate_trace_rows_sig(
+    rows: &mut [ChainCols<MaybeUninit<F>>],
+    sig_idx: usize,
+    trace: &VerificationTrace,
+) {
+    rows.par_iter_mut()
+        .zip(trace.chain_inputs)
+        .enumerate()
+        .for_each(|(sig_step, (row, input))| {
+            row.is_active.populate(true);
+            row.sig_idx.write_usize(sig_idx);
+            row.sig_step.write_usize(sig_step);
+            row.is_last_sig_row.populate(
+                F::from_canonical_usize(sig_step),
+                F::from_canonical_u16(TARGET_SUM - 1),
+            );
+            generate_trace_rows_for_perm::<
+                F,
+                GenericPoseidon2LinearLayersHorizon<WIDTH>,
+                WIDTH,
+                SBOX_DEGREE,
+                SBOX_REGISTERS,
+                HALF_FULL_ROUNDS,
+                PARTIAL_ROUNDS,
+            >(&mut row.perm, input, &RC16);
+        });
+    let mut rows = rows.iter_mut();
+    let chain_mid_indices = zip(0.., trace.x)
+        .filter_map(|(i, x_i)| (x_i != MAX_X_I as u16).then_some(i))
+        .chain([NUM_CHUNKS as u32])
+        .collect_vec();
+    chain_mid_indices.iter().tuple_windows().fold(
+        chain_mid_indices[0] * MAX_X_I,
+        |mut sum, (&i, &next_i)| {
+            let x_i = trace.x[i as usize] as u32;
+            let i_diff = next_i - i;
+            sum += x_i;
+            zip(x_i..MAX_X_I, rows.by_ref()).for_each(|(chain_step, row)| {
+                row.chain_idx.write_u32(i);
+                row.chain_idx_is_zero.populate(F::from_canonical_u32(i));
+                row.chain_idx_diff_bits.fill_from_iter(
+                    (0..MAX_CHAIN_STEP_DIFF_BITS).map(|idx| F::from_bool((i_diff >> idx) & 1 == 1)),
+                );
+                row.chain_idx_diff_inv.write_f(match i_diff {
+                    1 => F::ONE,
+                    2 => F::ONE.halve(),
+                    _ => F::from_canonical_u32(i_diff).inverse(),
+                });
+                row.chain_step_bits.fill_from_iter(
+                    (0..CHUNK_SIZE).map(|idx| F::from_bool((chain_step >> idx) & 1 == 1)),
+                );
+                row.is_receiving_chain.write_bool(chain_step == x_i);
+                row.sum.write_u32(sum);
+            });
+            sum + (next_i - i - 1) * MAX_X_I
+        },
+    );
+    debug_assert!(rows.next().is_none());
+}
+
+#[inline]
+pub fn generate_trace_rows_padding(rows: &mut [ChainCols<MaybeUninit<F>>]) {
+    if let Some((template, rows)) = rows.split_first_mut() {
+        generate_trace_row_padding(template);
+        let template = template.as_slice();
+        rows.par_iter_mut()
+            .for_each(|row| row.as_slice_mut().copy_from_slice(template));
+    }
 }
 
 #[inline]

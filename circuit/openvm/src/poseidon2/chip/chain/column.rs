@@ -12,6 +12,7 @@ use crate::{
 use core::{
     array::from_fn,
     borrow::{Borrow, BorrowMut},
+    slice,
 };
 use openvm_stark_backend::{p3_air::AirBuilder, p3_field::FieldAlgebra};
 use p3_poseidon2_util::air::{Poseidon2Cols, outputs};
@@ -44,6 +45,16 @@ pub struct ChainCols<T> {
     pub is_receiving_chain: T,
     /// Sum of `x_i`.
     pub sum: T,
+}
+
+impl<T> ChainCols<T> {
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { slice::from_raw_parts(self as *const _ as *const T, NUM_CHAIN_COLS) }
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        unsafe { slice::from_raw_parts_mut(self as *mut _ as *mut T, NUM_CHAIN_COLS) }
+    }
 }
 
 impl<T: Copy> ChainCols<T> {

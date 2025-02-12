@@ -58,33 +58,17 @@ pub fn generate_trace_rows(
                     let mut acc_limbs = Default::default();
                     let (acc_rows, decomposition_rows) = rows.split_at_mut(MSG_HASH_FE_LEN);
                     acc_rows.iter_mut().enumerate().for_each(|(step, row)| {
-                        row.sig_idx.write_usize(sig_idx);
-                        generate_trace_row_acc(row, &mut acc_limbs, msg_hash, step, &mult)
+                        generate_trace_row_acc(row, sig_idx, &mut acc_limbs, msg_hash, step, &mult)
                     });
                     decomposition_rows
-                        .iter_mut()
+                        .par_iter_mut()
                         .enumerate()
                         .for_each(|(step, row)| {
-                            row.sig_idx.write_usize(sig_idx);
-                            generate_trace_row_decomposition(row, &acc_limbs, step)
+                            generate_trace_row_decomposition(row, sig_idx, &acc_limbs, step)
                         });
                 })
         },
-        || {
-            padding_rows.iter_mut().for_each(|row| {
-                row.sig_idx.write_zero();
-                row.inds.populate(None);
-                row.values.fill_zero();
-                row.value_ls_limbs.fill_zero();
-                row.value_ms_limb_bits.fill_zero();
-                row.value_limb_0_is_zero.populate(F::ZERO);
-                row.value_limb_1_is_zero.populate(F::ZERO);
-                row.value_ms_limb_auxs.fill_zero();
-                row.acc_limbs.fill_zero();
-                row.carries.fill_zero();
-                row.decomposition_bits.fill_zero();
-            })
-        },
+        || generate_trace_rows_padding(padding_rows),
     );
 
     unsafe { vec.set_len(size) };
@@ -100,6 +84,7 @@ pub fn generate_trace_rows(
 #[inline]
 pub fn generate_trace_row_acc(
     row: &mut DecompositionCols<MaybeUninit<F>>,
+    sig_idx: usize,
     acc_limbs: &mut [u32; NUM_MSG_HASH_LIMBS],
     values: [F; MSG_HASH_FE_LEN],
     step: usize,
@@ -143,6 +128,7 @@ pub fn generate_trace_row_acc(
             mult[value as usize].fetch_add(1, Ordering::Relaxed);
         });
     let value_ls_limbs: [_; NUM_LIMBS - 1] = from_fn(|i| F::from_canonical_u32(value_limbs[i]));
+    row.sig_idx.write_usize(sig_idx);
     row.inds.populate(Some(step));
     row.values.fill_from_slice(&values);
     row.value_ls_limbs.fill_from_slice(&value_ls_limbs);
@@ -163,9 +149,11 @@ pub fn generate_trace_row_acc(
 #[inline]
 pub fn generate_trace_row_decomposition(
     row: &mut DecompositionCols<MaybeUninit<F>>,
+    sig_idx: usize,
     acc_limbs: &[u32; NUM_MSG_HASH_LIMBS],
     step: usize,
 ) {
+    row.sig_idx.write_usize(sig_idx);
     row.inds.populate(Some(MSG_HASH_FE_LEN + step));
     row.acc_limbs
         .fill_from_iter(acc_limbs.map(F::from_canonical_u32));
@@ -179,4 +167,29 @@ pub fn generate_trace_row_decomposition(
     row.value_limb_1_is_zero.populate(F::ZERO);
     row.value_ms_limb_auxs.fill_zero();
     row.carries.fill_zero();
+}
+
+#[inline]
+pub fn generate_trace_rows_padding(rows: &mut [DecompositionCols<MaybeUninit<F>>]) {
+    if let Some((template, rows)) = rows.split_first_mut() {
+        generate_trace_row_padding(template);
+        let template = template.as_slice();
+        rows.par_iter_mut()
+            .for_each(|row| row.as_slice_mut().copy_from_slice(template));
+    }
+}
+
+#[inline]
+pub fn generate_trace_row_padding(row: &mut DecompositionCols<MaybeUninit<F>>) {
+    row.sig_idx.write_zero();
+    row.inds.populate(None);
+    row.values.fill_zero();
+    row.value_ls_limbs.fill_zero();
+    row.value_ms_limb_bits.fill_zero();
+    row.value_limb_0_is_zero.populate(F::ZERO);
+    row.value_limb_1_is_zero.populate(F::ZERO);
+    row.value_ms_limb_auxs.fill_zero();
+    row.acc_limbs.fill_zero();
+    row.carries.fill_zero();
+    row.decomposition_bits.fill_zero();
 }

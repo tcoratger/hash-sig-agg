@@ -2,6 +2,7 @@ use crate::poseidon2::{F, concat_array};
 use core::{array::from_fn, mem::transmute};
 use num_bigint::BigUint;
 use openvm_stark_backend::p3_field::{FieldAlgebra, PrimeField32};
+use p3_maybe_rayon::prelude::*;
 use p3_poseidon2_util::horizon::baby_bear::{poseidon2_t16_horizon, poseidon2_t24_horizon};
 use p3_symmetric::Permutation;
 
@@ -93,6 +94,7 @@ pub struct VerificationTrace {
     pub msg_hash: [F; MSG_HASH_FE_LEN],
     pub x: [u16; NUM_CHUNKS],
     pub one_time_pk: [[F; TH_HASH_FE_LEN]; NUM_CHUNKS],
+    pub chain_inputs: [[F; 16]; TARGET_SUM as usize],
 }
 
 impl VerificationTrace {
@@ -102,21 +104,30 @@ impl VerificationTrace {
         pk: PublicKey,
         sig: Signature,
     ) -> Self {
-        let msg_hash = poseidon2_compress::<24, 22, MSG_HASH_FE_LEN>(concat_array![
+        let msg_hash = poseidon2_compress::<24, MSG_HASH_FE_LEN>(concat_array![
             sig.rho,
             encode_tweak_msg(epoch),
             encoded_msg,
             pk.parameter
         ]);
         let x = msg_hash_to_chunks(msg_hash);
-        let one_time_pk =
-            from_fn(|i| chain(epoch, pk.parameter, i as _, x[i], sig.one_time_sig[i]));
+        let (one_time_pk, chain_inputs) = (0..NUM_CHUNKS)
+            .into_par_iter()
+            .map(|i| chain(epoch, pk.parameter, i as _, x[i], sig.one_time_sig[i]))
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+        let chain_inputs = {
+            let mut iter = chain_inputs.into_iter().flatten();
+            let chain_inputs = from_fn(|_| iter.next().unwrap());
+            debug_assert!(iter.next().is_none());
+            chain_inputs
+        };
         Self {
             pk,
             sig,
             msg_hash,
             x,
-            one_time_pk,
+            one_time_pk: one_time_pk.try_into().unwrap(),
+            chain_inputs,
         }
     }
 
@@ -150,18 +161,6 @@ impl VerificationTrace {
             encode_tweak_merkle_tree(0, epoch),
             self.one_time_pk.into_iter().flatten()
         ]
-    }
-}
-
-impl Default for VerificationTrace {
-    fn default() -> Self {
-        Self {
-            pk: Default::default(),
-            sig: Default::default(),
-            msg_hash: Default::default(),
-            x: from_fn(|i| if i >= NUM_CHUNKS / 2 { 1 } else { 2 }),
-            one_time_pk: from_fn(|_| Default::default()),
-        }
     }
 }
 
@@ -204,13 +203,11 @@ pub fn chain(
     i: u16,
     x_i: u16,
     one_time_sig_i: [F; TH_HASH_FE_LEN],
-) -> [F; TH_HASH_FE_LEN] {
-    (x_i + 1..(1 << CHUNK_SIZE)).fold(one_time_sig_i, |value, k| {
-        poseidon2_compress::<16, 14, TH_HASH_FE_LEN>(concat_array![
-            parameter,
-            encode_tweak_chain(epoch, i, k),
-            value
-        ])
+) -> ([F; TH_HASH_FE_LEN], Vec<[F; 16]>) {
+    (x_i + 1..(1 << CHUNK_SIZE)).fold((one_time_sig_i, Vec::new()), |(value, mut inputs), k| {
+        let input = concat_array![parameter, encode_tweak_chain(epoch, i, k), value];
+        inputs.push(input);
+        (poseidon2_compress::<16, TH_HASH_FE_LEN>(input), inputs)
     })
 }
 
@@ -227,10 +224,8 @@ fn fs_from_bytes<const N: usize>(bytes: &mut impl Iterator<Item = u8>) -> [F; N]
     from_fn(|_| u32::from_le_bytes(from_fn(|_| bytes.next().unwrap()))).map(F::new)
 }
 
-fn poseidon2_compress<const T: usize, const I: usize, const O: usize>(input: [F; I]) -> [F; O] {
-    const { assert!(I >= O && I <= T) };
-    let padded = from_fn(|i| input.get(i).copied().unwrap_or_default());
-    let output = poseidon2_permutation::<T>(padded);
+fn poseidon2_compress<const T: usize, const O: usize>(input: [F; T]) -> [F; O] {
+    let output = poseidon2_permutation::<T>(input);
     from_fn(|i| input[i] + output[i])
 }
 

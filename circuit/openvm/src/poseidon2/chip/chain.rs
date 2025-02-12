@@ -29,16 +29,14 @@ mod poseidon2 {
 pub struct ChainChip<'a> {
     air: Arc<ChainAir>,
     extra_capacity_bits: usize,
-    epoch: u32,
     traces: &'a [VerificationTrace],
 }
 
 impl<'a> ChainChip<'a> {
-    pub fn new(extra_capacity_bits: usize, epoch: u32, traces: &'a [VerificationTrace]) -> Self {
+    pub fn new(extra_capacity_bits: usize, traces: &'a [VerificationTrace]) -> Self {
         Self {
             air: Default::default(),
             extra_capacity_bits,
-            epoch,
             traces,
         }
     }
@@ -71,11 +69,7 @@ where
             cached_mains_pdata: Vec::new(),
             raw: AirProofRawInput {
                 cached_mains: Vec::new(),
-                common_main: Some(generate_trace_rows(
-                    self.extra_capacity_bits,
-                    self.epoch,
-                    self.traces,
-                )),
+                common_main: Some(generate_trace_rows(self.extra_capacity_bits, self.traces)),
                 public_values: Vec::new(),
             },
         }

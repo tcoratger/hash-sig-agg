@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+itertools = "0.14.0"
 num-bigint = "0.4.6"
 openvm-stark-backend = { git = "https://github.com/openvm-org/stark-backend" }
 openvm-stark-sdk = { git = "https://github.com/openvm-org/stark-backend" }

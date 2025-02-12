@@ -12,6 +12,7 @@ use crate::{
 use core::{
     array::from_fn,
     borrow::{Borrow, BorrowMut},
+    slice,
 };
 use openvm_stark_backend::p3_air::AirBuilder;
 use p3_poseidon2_util::air::{Poseidon2Cols, outputs};
@@ -39,6 +40,16 @@ pub struct MerkleTreeCols<T> {
     pub is_last_level: IsEqualCols<T>,
     pub epoch_dec: T,
     pub is_right: T,
+}
+
+impl<T> MerkleTreeCols<T> {
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { slice::from_raw_parts(self as *const _ as *const T, NUM_MERKLE_TREE_COLS) }
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        unsafe { slice::from_raw_parts_mut(self as *mut _ as *mut T, NUM_MERKLE_TREE_COLS) }
+    }
 }
 
 impl<T: Copy> MerkleTreeCols<T> {

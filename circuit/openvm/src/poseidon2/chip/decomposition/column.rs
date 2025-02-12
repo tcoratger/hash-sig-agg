@@ -5,7 +5,10 @@ use crate::{
         hash_sig::MSG_HASH_FE_LEN,
     },
 };
-use core::borrow::{Borrow, BorrowMut};
+use core::{
+    borrow::{Borrow, BorrowMut},
+    slice,
+};
 use openvm_stark_backend::{p3_air::AirBuilder, p3_field::FieldAlgebra};
 
 pub const NUM_DECOMPOSITION_COLS: usize = size_of::<DecompositionCols<u8>>();
@@ -33,6 +36,16 @@ pub struct DecompositionCols<T> {
     /// Bit decomposition of `acc_limbs[decomposition_step]` in little-endian.
     pub decomposition_bits: [T; LIMB_BITS],
     pub carries: [T; NUM_MSG_HASH_LIMBS - 1],
+}
+
+impl<T> DecompositionCols<T> {
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { slice::from_raw_parts(self as *const _ as *const T, NUM_DECOMPOSITION_COLS) }
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        unsafe { slice::from_raw_parts_mut(self as *mut _ as *mut T, NUM_DECOMPOSITION_COLS) }
+    }
 }
 
 impl<T: Copy> DecompositionCols<T> {

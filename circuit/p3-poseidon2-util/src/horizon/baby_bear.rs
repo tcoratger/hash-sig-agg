@@ -7,6 +7,7 @@ use p3_poseidon2::{
     mds_light_permutation, ExternalLayer, ExternalLayerConstants, ExternalLayerConstructor,
     GenericPoseidon2LinearLayers, HLMDSMat4, InternalLayer, InternalLayerConstructor, Poseidon2,
 };
+use std::sync::LazyLock;
 
 pub mod constant;
 
@@ -18,24 +19,30 @@ pub type Poseidon2Horizon<const WIDTH: usize> = Poseidon2<
     SBOX_DEGREE,
 >;
 
-pub fn poseidon2_t16_horizon() -> Poseidon2Horizon<16> {
-    Poseidon2::new(
-        ExternalLayerConstants::new(
-            RC16.beginning_full_round_constants.to_vec(),
-            RC16.ending_full_round_constants.to_vec(),
-        ),
-        RC16.partial_round_constants.to_vec(),
-    )
+pub fn poseidon2_t16_horizon() -> &'static Poseidon2Horizon<16> {
+    static INSTANCE: LazyLock<Poseidon2Horizon<16>> = LazyLock::new(|| {
+        Poseidon2::new(
+            ExternalLayerConstants::new(
+                RC16.beginning_full_round_constants.to_vec(),
+                RC16.ending_full_round_constants.to_vec(),
+            ),
+            RC16.partial_round_constants.to_vec(),
+        )
+    });
+    &*INSTANCE
 }
 
-pub fn poseidon2_t24_horizon() -> Poseidon2Horizon<24> {
-    Poseidon2::new(
-        ExternalLayerConstants::new(
-            RC24.beginning_full_round_constants.to_vec(),
-            RC24.ending_full_round_constants.to_vec(),
-        ),
-        RC24.partial_round_constants.to_vec(),
-    )
+pub fn poseidon2_t24_horizon() -> &'static Poseidon2Horizon<24> {
+    static INSTANCE: LazyLock<Poseidon2Horizon<24>> = LazyLock::new(|| {
+        Poseidon2::new(
+            ExternalLayerConstants::new(
+                RC24.beginning_full_round_constants.to_vec(),
+                RC24.ending_full_round_constants.to_vec(),
+            ),
+            RC24.partial_round_constants.to_vec(),
+        )
+    });
+    &*INSTANCE
 }
 
 #[derive(Clone, Debug)]

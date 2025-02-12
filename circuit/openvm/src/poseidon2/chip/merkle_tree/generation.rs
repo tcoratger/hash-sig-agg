@@ -17,6 +17,7 @@ use crate::{
 use core::{
     array::from_fn,
     iter::{self, zip},
+    mem::MaybeUninit,
 };
 use openvm_stark_backend::{
     p3_field::FieldAlgebra,
@@ -24,7 +25,6 @@ use openvm_stark_backend::{
     p3_maybe_rayon::prelude::*,
 };
 use p3_poseidon2_util::air::{generate_trace_rows_for_perm, outputs};
-use std::mem::MaybeUninit;
 
 const NUM_ROWS_PER_SIG: usize = 1 + SPONGE_PERM + LOG_LIFETIME;
 
@@ -66,40 +66,9 @@ pub fn generate_trace_rows(
                     generate_trace_row_msg(msg_row, epoch, encoded_msg, trace, sig_idx);
                     let leaf_hash = generate_trace_rows_leaf(leaf_rows, epoch, sig_idx, trace);
                     generate_trace_rows_path(path_rows, epoch, sig_idx, trace, leaf_hash)
-                })
+                });
         },
-        || {
-            padding_rows.par_iter_mut().for_each(|row| {
-                row.sig_idx.write_zero();
-                row.is_msg.write_zero();
-                row.is_merkle_leaf.write_zero();
-                row.is_merkle_leaf_transition.write_zero();
-                row.is_merkle_path.write_zero();
-                row.is_merkle_path_transition.write_zero();
-                row.is_recevie_merkle_tree.fill_zero();
-                row.root.fill_zero();
-                row.sponge_step.write_zero();
-                row.is_last_sponge_step
-                    .populate(F::ZERO, F::from_canonical_usize(SPONGE_PERM - 1));
-                row.sponge_block.fill_zero();
-                row.leaf_chunk_start_ind.fill_zero();
-                row.leaf_chunk_idx.write_zero();
-                row.level.write_zero();
-                row.is_last_level
-                    .populate(F::ZERO, F::from_canonical_usize(LOG_LIFETIME - 1));
-                row.epoch_dec.write_zero();
-                row.is_right.write_zero();
-                generate_trace_rows_for_perm::<
-                    F,
-                    GenericPoseidon2LinearLayersHorizon<WIDTH>,
-                    WIDTH,
-                    SBOX_DEGREE,
-                    SBOX_REGISTERS,
-                    HALF_FULL_ROUNDS,
-                    PARTIAL_ROUNDS,
-                >(&mut row.perm, Default::default(), &RC24);
-            })
-        },
+        || generate_trace_rows_padding(padding_rows),
     );
 
     unsafe { vec.set_len(size) };
@@ -277,4 +246,46 @@ fn generate_trace_rows_path(
             unsafe { from_fn(|i| input[i] + outputs(&row.perm)[i].assume_init()) }
         },
     );
+}
+
+#[inline]
+pub fn generate_trace_rows_padding(rows: &mut [MerkleTreeCols<MaybeUninit<F>>]) {
+    if let Some((template, rows)) = rows.split_first_mut() {
+        generate_trace_row_padding(template);
+        let template = template.as_slice();
+        rows.par_iter_mut()
+            .for_each(|row| row.as_slice_mut().copy_from_slice(template));
+    }
+}
+
+#[inline]
+pub fn generate_trace_row_padding(row: &mut MerkleTreeCols<MaybeUninit<F>>) {
+    row.sig_idx.write_zero();
+    row.is_msg.write_zero();
+    row.is_merkle_leaf.write_zero();
+    row.is_merkle_leaf_transition.write_zero();
+    row.is_merkle_path.write_zero();
+    row.is_merkle_path_transition.write_zero();
+    row.is_recevie_merkle_tree.fill_zero();
+    row.root.fill_zero();
+    row.sponge_step.write_zero();
+    row.is_last_sponge_step
+        .populate(F::ZERO, F::from_canonical_usize(SPONGE_PERM - 1));
+    row.sponge_block.fill_zero();
+    row.leaf_chunk_start_ind.fill_zero();
+    row.leaf_chunk_idx.write_zero();
+    row.level.write_zero();
+    row.is_last_level
+        .populate(F::ZERO, F::from_canonical_usize(LOG_LIFETIME - 1));
+    row.epoch_dec.write_zero();
+    row.is_right.write_zero();
+    generate_trace_rows_for_perm::<
+        F,
+        GenericPoseidon2LinearLayersHorizon<WIDTH>,
+        WIDTH,
+        SBOX_DEGREE,
+        SBOX_REGISTERS,
+        HALF_FULL_ROUNDS,
+        PARTIAL_ROUNDS,
+    >(&mut row.perm, Default::default(), &RC24);
 }

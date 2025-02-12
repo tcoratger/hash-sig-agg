@@ -24,6 +24,7 @@ mod generation;
 const WIDTH: usize = 24;
 const PARTIAL_ROUNDS: usize = 21;
 
+#[derive(Clone, Debug)]
 pub struct MerkleTreeChip<'a> {
     air: Arc<MerkleTreeAir>,
     extra_capacity_bits: usize,

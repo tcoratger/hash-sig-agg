@@ -27,6 +27,7 @@ use openvm_stark_backend::{
 use p3_poseidon2_air::{Poseidon2Air, num_cols};
 use p3_poseidon2_util::horizon::baby_bear::constant::RC16;
 
+#[derive(Debug)]
 pub struct ChainAir(
     Poseidon2Air<
         F,

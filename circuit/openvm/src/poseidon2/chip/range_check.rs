@@ -20,6 +20,7 @@ mod air;
 mod column;
 mod generation;
 
+#[derive(Clone, Debug)]
 pub struct RangeCheckChip {
     extra_capacity_bits: usize,
     mult: Vec<u32>,

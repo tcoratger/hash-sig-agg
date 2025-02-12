@@ -31,6 +31,7 @@ use openvm_stark_backend::{
 };
 use p3_poseidon2_air::{Poseidon2Air, num_cols};
 
+#[derive(Debug)]
 pub struct MerkleTreeAir(
     Poseidon2Air<
         F,

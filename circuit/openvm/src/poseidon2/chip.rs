@@ -49,36 +49,37 @@ where
     let chain = ChainChip::new(extra_capacity_bits, epoch, &traces);
     let merkle_tree = MerkleTreeChip::new(extra_capacity_bits, epoch, encoded_msg, &traces);
     let decomposition = DecompositionChip::new(extra_capacity_bits, &traces);
-    let mut airs = vec![
-        main.air(),
-        chain.air(),
-        merkle_tree.air(),
-        decomposition.air(),
-    ];
-    let ((main_api, chain_api), (merkle_tree_api, (decomposition_api, mult))) = join(
+    let ((main_api, chain_api), (merkle_tree_api, (decomposition_api, range_check_mult))) = join(
         || {
             join(
                 || main.generate_air_proof_input(),
-                || chain.generate_air_proof_input(),
+                || chain.clone().generate_air_proof_input(),
             )
         },
         || {
             join(
-                || merkle_tree.generate_air_proof_input(),
+                || merkle_tree.clone().generate_air_proof_input(),
                 || decomposition.generate_air_proof_input_and_range_check_mult(),
             )
         },
     );
-    let range_check_chip = RangeCheckChip::new(extra_capacity_bits, mult);
-    airs.push(range_check_chip.air());
-    let range_check_api = range_check_chip.generate_air_proof_input();
-    (airs, vec![
-        main_api,
-        chain_api,
-        merkle_tree_api,
-        decomposition_api,
-        range_check_api,
-    ])
+    let range_check_chip = RangeCheckChip::new(extra_capacity_bits, range_check_mult);
+    (
+        vec![
+            main.air(),
+            chain.air(),
+            merkle_tree.air(),
+            decomposition.air(),
+            range_check_chip.air(),
+        ],
+        vec![
+            main_api,
+            chain_api,
+            merkle_tree_api,
+            decomposition_api,
+            range_check_chip.generate_air_proof_input(),
+        ],
+    )
 }
 
 #[cfg(test)]

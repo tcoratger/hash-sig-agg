@@ -35,6 +35,7 @@ mod air;
 mod column;
 mod generation;
 
+#[derive(Clone, Copy, Debug)]
 pub struct DecompositionChip<'a> {
     extra_capacity_bits: usize,
     traces: &'a [VerificationTrace],

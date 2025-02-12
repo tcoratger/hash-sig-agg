@@ -18,6 +18,7 @@ mod air;
 mod column;
 mod generation;
 
+#[derive(Clone, Copy, Debug)]
 pub struct MainChip<'a> {
     extra_capacity_bits: usize,
     traces: &'a [VerificationTrace],

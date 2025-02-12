@@ -86,6 +86,7 @@ impl Default for Signature {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct VerificationTrace {
     pub pk: PublicKey,
     pub sig: Signature,

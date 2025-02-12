@@ -25,6 +25,7 @@ mod poseidon2 {
     pub const PARTIAL_ROUNDS: usize = 13;
 }
 
+#[derive(Clone, Debug)]
 pub struct ChainChip<'a> {
     air: Arc<ChainAir>,
     extra_capacity_bits: usize,

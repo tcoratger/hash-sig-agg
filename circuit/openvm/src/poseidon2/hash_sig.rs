@@ -1,5 +1,5 @@
 use crate::poseidon2::{F, concat_array};
-use core::{array::from_fn, iter::zip, mem::transmute};
+use core::{array::from_fn, mem::transmute};
 use num_bigint::BigUint;
 use openvm_stark_backend::p3_field::{FieldAlgebra, PrimeField32};
 use p3_poseidon2_util::horizon::baby_bear::{poseidon2_t16_horizon, poseidon2_t24_horizon};
@@ -226,20 +226,7 @@ fn fs_from_bytes<const N: usize>(bytes: &mut impl Iterator<Item = u8>) -> [F; N]
     from_fn(|_| u32::from_le_bytes(from_fn(|_| bytes.next().unwrap()))).map(F::new)
 }
 
-pub fn poseidon2_sponge<const I: usize>(input: [F; I]) -> [F; TH_HASH_FE_LEN] {
-    let mut state = from_fn(|i| {
-        i.checked_sub(SPONGE_RATE)
-            .map(|i| SPONGE_CAPACITY_VALUES[i])
-            .unwrap_or_default()
-    });
-    input.chunks(SPONGE_RATE).for_each(|block| {
-        zip(&mut state, block).for_each(|(state, block)| *state += *block);
-        state = poseidon2_permutation::<24>(state);
-    });
-    from_fn(|i| state[i])
-}
-
-pub fn poseidon2_compress<const T: usize, const I: usize, const O: usize>(input: [F; I]) -> [F; O] {
+fn poseidon2_compress<const T: usize, const I: usize, const O: usize>(input: [F; I]) -> [F; O] {
     const { assert!(I >= O && I <= T) };
     let padded = from_fn(|i| input.get(i).copied().unwrap_or_default());
     let output = poseidon2_permutation::<T>(padded);

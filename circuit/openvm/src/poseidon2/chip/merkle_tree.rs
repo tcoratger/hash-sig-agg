@@ -1,7 +1,7 @@
 use crate::poseidon2::{
     F,
-    chip::poseidon2_t24::{
-        air::Poseidon2T24Air, column::NUM_POSEIDON2_T24_COLS, generation::generate_trace_rows,
+    chip::merkle_tree::{
+        air::MerkleTreeAir, column::NUM_MERKLE_TREE_COLS, generation::generate_trace_rows,
     },
     hash_sig::{MSG_FE_LEN, VerificationTrace, encode_tweak_merkle_tree, encode_tweak_msg},
 };
@@ -24,15 +24,15 @@ mod generation;
 const WIDTH: usize = 24;
 const PARTIAL_ROUNDS: usize = 21;
 
-pub struct Poseidon2T24Chip<'a> {
-    air: Arc<Poseidon2T24Air>,
+pub struct MerkleTreeChip<'a> {
+    air: Arc<MerkleTreeAir>,
     extra_capacity_bits: usize,
     epoch: u32,
     encoded_msg: [F; MSG_FE_LEN],
     traces: &'a [VerificationTrace],
 }
 
-impl<'a> Poseidon2T24Chip<'a> {
+impl<'a> MerkleTreeChip<'a> {
     pub fn new(
         extra_capacity_bits: usize,
         epoch: u32,
@@ -49,9 +49,9 @@ impl<'a> Poseidon2T24Chip<'a> {
     }
 }
 
-impl ChipUsageGetter for Poseidon2T24Chip<'_> {
+impl ChipUsageGetter for MerkleTreeChip<'_> {
     fn air_name(&self) -> String {
-        type_name::<Poseidon2T24Air>().to_string()
+        type_name::<MerkleTreeAir>().to_string()
     }
 
     fn current_trace_height(&self) -> usize {
@@ -59,11 +59,11 @@ impl ChipUsageGetter for Poseidon2T24Chip<'_> {
     }
 
     fn trace_width(&self) -> usize {
-        NUM_POSEIDON2_T24_COLS
+        NUM_MERKLE_TREE_COLS
     }
 }
 
-impl<SC: StarkGenericConfig> Chip<SC> for Poseidon2T24Chip<'_>
+impl<SC: StarkGenericConfig> Chip<SC> for MerkleTreeChip<'_>
 where
     Domain<SC>: PolynomialSpace<Val = F>,
 {

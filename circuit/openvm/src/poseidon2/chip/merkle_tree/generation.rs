@@ -2,9 +2,9 @@ use crate::{
     poseidon2::{
         F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, RC24, SBOX_DEGREE,
         SBOX_REGISTERS,
-        chip::poseidon2_t24::{
+        chip::merkle_tree::{
             PARTIAL_ROUNDS, WIDTH,
-            column::{NUM_POSEIDON2_T24_COLS, Poseidon2T24Cols},
+            column::{MerkleTreeCols, NUM_MERKLE_TREE_COLS},
         },
         concat_array,
         hash_sig::{
@@ -39,15 +39,15 @@ pub fn generate_trace_rows(
     traces: &[VerificationTrace],
 ) -> RowMajorMatrix<F> {
     let height = trace_height(traces);
-    let size = height * NUM_POSEIDON2_T24_COLS;
+    let size = height * NUM_MERKLE_TREE_COLS;
     let mut vec = Vec::with_capacity(size << extra_capacity_bits);
     let trace = &mut vec.spare_capacity_mut()[..size];
-    let trace = RowMajorMatrixViewMut::new(trace, NUM_POSEIDON2_T24_COLS);
+    let trace = RowMajorMatrixViewMut::new(trace, NUM_MERKLE_TREE_COLS);
 
     let (prefix, rows, suffix) = unsafe {
         trace
             .values
-            .align_to_mut::<Poseidon2T24Cols<MaybeUninit<F>>>()
+            .align_to_mut::<MerkleTreeCols<MaybeUninit<F>>>()
     };
     assert!(prefix.is_empty(), "Alignment should match");
     assert!(suffix.is_empty(), "Alignment should match");
@@ -104,12 +104,12 @@ pub fn generate_trace_rows(
 
     unsafe { vec.set_len(size) };
 
-    RowMajorMatrix::new(vec, NUM_POSEIDON2_T24_COLS)
+    RowMajorMatrix::new(vec, NUM_MERKLE_TREE_COLS)
 }
 
 #[inline]
 fn generate_trace_row_msg(
-    row: &mut Poseidon2T24Cols<MaybeUninit<F>>,
+    row: &mut MerkleTreeCols<MaybeUninit<F>>,
     epoch: u32,
     encoded_msg: [F; MSG_FE_LEN],
     trace: &VerificationTrace,
@@ -148,7 +148,7 @@ fn generate_trace_row_msg(
 
 #[inline]
 fn generate_trace_rows_leaf(
-    rows: &mut [Poseidon2T24Cols<MaybeUninit<F>>],
+    rows: &mut [MerkleTreeCols<MaybeUninit<F>>],
     epoch: u32,
     sig_idx: usize,
     trace: &VerificationTrace,
@@ -218,7 +218,7 @@ fn generate_trace_rows_leaf(
 
 #[inline]
 fn generate_trace_rows_path(
-    rows: &mut [Poseidon2T24Cols<MaybeUninit<F>>],
+    rows: &mut [MerkleTreeCols<MaybeUninit<F>>],
     epoch: u32,
     sig_idx: usize,
     trace: &VerificationTrace,

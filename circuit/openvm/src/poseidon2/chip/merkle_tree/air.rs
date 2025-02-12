@@ -5,9 +5,9 @@ use crate::{
         SBOX_REGISTERS,
         chip::{
             Bus,
-            poseidon2_t24::{
+            merkle_tree::{
                 PARTIAL_ROUNDS, WIDTH,
-                column::{NUM_POSEIDON2_T24_COLS, Poseidon2T24Cols},
+                column::{MerkleTreeCols, NUM_MERKLE_TREE_COLS},
             },
         },
         hash_sig::{
@@ -31,7 +31,7 @@ use openvm_stark_backend::{
 };
 use p3_poseidon2_air::{Poseidon2Air, num_cols};
 
-pub struct Poseidon2T24Air(
+pub struct MerkleTreeAir(
     Poseidon2Air<
         F,
         GenericPoseidon2LinearLayersHorizon<WIDTH>,
@@ -43,27 +43,27 @@ pub struct Poseidon2T24Air(
     >,
 );
 
-impl Default for Poseidon2T24Air {
+impl Default for MerkleTreeAir {
     fn default() -> Self {
         Self(Poseidon2Air::new(RC24.into()))
     }
 }
 
-impl BaseAir<F> for Poseidon2T24Air {
+impl BaseAir<F> for MerkleTreeAir {
     fn width(&self) -> usize {
-        NUM_POSEIDON2_T24_COLS
+        NUM_MERKLE_TREE_COLS
     }
 }
 
-impl PartitionedBaseAir<F> for Poseidon2T24Air {}
+impl PartitionedBaseAir<F> for MerkleTreeAir {}
 
-impl BaseAirWithPublicValues<F> for Poseidon2T24Air {
+impl BaseAirWithPublicValues<F> for MerkleTreeAir {
     fn num_public_values(&self) -> usize {
         1 + TWEAK_FE_LEN + MSG_FE_LEN + TWEAK_FE_LEN
     }
 }
 
-impl<AB> Air<AB> for Poseidon2T24Air
+impl<AB> Air<AB> for MerkleTreeAir
 where
     AB: InteractionBuilder<F = F> + AirBuilderWithPublicValues,
     AB::Expr: FieldAlgebra<F = F>,
@@ -100,8 +100,8 @@ where
 
         let local = main.row_slice(0);
         let next = main.row_slice(1);
-        let local: &Poseidon2T24Cols<AB::Var> = (*local).borrow();
-        let next: &Poseidon2T24Cols<AB::Var> = (*next).borrow();
+        let local: &MerkleTreeCols<AB::Var> = (*local).borrow();
+        let next: &MerkleTreeCols<AB::Var> = (*next).borrow();
 
         // When every row
         eval_every_row(builder, local);
@@ -142,7 +142,7 @@ where
 }
 
 #[inline]
-fn eval_every_row<AB>(builder: &mut AB, cols: &Poseidon2T24Cols<AB::Var>)
+fn eval_every_row<AB>(builder: &mut AB, cols: &MerkleTreeCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
 {
@@ -176,8 +176,8 @@ where
 #[inline]
 fn eval_sig_transition<AB>(
     builder: &mut AB,
-    local: &Poseidon2T24Cols<AB::Var>,
-    next: &Poseidon2T24Cols<AB::Var>,
+    local: &MerkleTreeCols<AB::Var>,
+    next: &MerkleTreeCols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
 {
@@ -193,8 +193,8 @@ fn eval_msg_transition<AB>(
     encoded_tweak_msg: [AB::Expr; TWEAK_FE_LEN],
     encoded_msg: [AB::Expr; MSG_FE_LEN],
     encoded_tweak_merkle_leaf: [AB::Expr; TWEAK_FE_LEN],
-    local: &Poseidon2T24Cols<AB::Var>,
-    next: &Poseidon2T24Cols<AB::Var>,
+    local: &MerkleTreeCols<AB::Var>,
+    next: &MerkleTreeCols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
 {
@@ -211,7 +211,7 @@ fn eval_msg_transition<AB>(
 }
 
 #[inline]
-fn eval_merkle_leaf_every_row<AB>(builder: &mut AB, cols: &Poseidon2T24Cols<AB::Var>)
+fn eval_merkle_leaf_every_row<AB>(builder: &mut AB, cols: &MerkleTreeCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
 {
@@ -228,7 +228,7 @@ where
 }
 
 #[inline]
-fn eval_merkle_leaf_first_row<AB>(builder: &mut AB, cols: &Poseidon2T24Cols<AB::Var>)
+fn eval_merkle_leaf_first_row<AB>(builder: &mut AB, cols: &MerkleTreeCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
 {
@@ -246,8 +246,8 @@ where
 #[inline]
 fn eval_merkle_leaf_transition<AB>(
     builder: &mut AB,
-    local: &Poseidon2T24Cols<AB::Var>,
-    next: &Poseidon2T24Cols<AB::Var>,
+    local: &MerkleTreeCols<AB::Var>,
+    next: &MerkleTreeCols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
 {
@@ -279,8 +279,8 @@ fn eval_merkle_leaf_transition<AB>(
 fn eval_merkle_leaf_last_row<AB>(
     builder: &mut AB,
     epoch: AB::Expr,
-    local: &Poseidon2T24Cols<AB::Var>,
-    next: &Poseidon2T24Cols<AB::Var>,
+    local: &MerkleTreeCols<AB::Var>,
+    next: &MerkleTreeCols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
 {
@@ -299,8 +299,8 @@ fn eval_merkle_leaf_last_row<AB>(
 #[inline]
 fn eval_merkle_path_transition<AB>(
     builder: &mut AB,
-    local: &Poseidon2T24Cols<AB::Var>,
-    next: &Poseidon2T24Cols<AB::Var>,
+    local: &MerkleTreeCols<AB::Var>,
+    next: &MerkleTreeCols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
 {
@@ -321,8 +321,8 @@ fn eval_merkle_path_transition<AB>(
 #[inline]
 fn eval_merkle_path_last_row<AB>(
     builder: &mut AB,
-    local: &Poseidon2T24Cols<AB::Var>,
-    next: &Poseidon2T24Cols<AB::Var>,
+    local: &MerkleTreeCols<AB::Var>,
+    next: &MerkleTreeCols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
 {
@@ -339,8 +339,8 @@ fn eval_merkle_path_last_row<AB>(
 #[inline]
 fn eval_padding_transition<AB>(
     builder: &mut AB,
-    local: &Poseidon2T24Cols<AB::Var>,
-    next: &Poseidon2T24Cols<AB::Var>,
+    local: &MerkleTreeCols<AB::Var>,
+    next: &MerkleTreeCols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
 {
@@ -352,7 +352,7 @@ fn eval_padding_transition<AB>(
 }
 
 #[inline]
-fn receive_msg_hash<AB>(builder: &mut AB, local: &Poseidon2T24Cols<AB::Var>)
+fn receive_msg_hash<AB>(builder: &mut AB, local: &MerkleTreeCols<AB::Var>)
 where
     AB: InteractionBuilder<F = F>,
 {
@@ -369,8 +369,8 @@ where
 #[inline]
 fn receive_merkle_tree<AB>(
     builder: &mut AB,
-    local: &Poseidon2T24Cols<AB::Var>,
-    next: &Poseidon2T24Cols<AB::Var>,
+    local: &MerkleTreeCols<AB::Var>,
+    next: &MerkleTreeCols<AB::Var>,
 ) where
     AB: InteractionBuilder<F = F>,
 {

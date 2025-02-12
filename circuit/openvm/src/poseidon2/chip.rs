@@ -5,6 +5,7 @@ use crate::poseidon2::{
 };
 use chain::ChainChip;
 use decomposition::DecompositionChip;
+use merkle_tree::MerkleTreeChip;
 use openvm_stark_backend::{
     AirRef, Chip,
     config::{Domain, StarkGenericConfig},
@@ -12,13 +13,12 @@ use openvm_stark_backend::{
     p3_maybe_rayon::prelude::*,
     prover::types::AirProofInput,
 };
-use poseidon2_t24::Poseidon2T24Chip;
 use range_check::RangeCheckChip;
 
 pub mod chain;
 pub mod decomposition;
 pub mod main;
-pub mod poseidon2_t24;
+pub mod merkle_tree;
 pub mod range_check;
 
 #[repr(u8)]
@@ -47,15 +47,15 @@ where
         .collect::<Vec<_>>();
     let main = MainChip::new(extra_capacity_bits, &traces);
     let chain = ChainChip::new(extra_capacity_bits, epoch, &traces);
-    let poseidon2_t24 = Poseidon2T24Chip::new(extra_capacity_bits, epoch, encoded_msg, &traces);
+    let merkle_tree = MerkleTreeChip::new(extra_capacity_bits, epoch, encoded_msg, &traces);
     let decomposition = DecompositionChip::new(extra_capacity_bits, &traces);
     let mut airs = vec![
         main.air(),
         chain.air(),
-        poseidon2_t24.air(),
+        merkle_tree.air(),
         decomposition.air(),
     ];
-    let ((main_api, chain_api), (poseidon2_t24_api, (decomposition_api, mult))) = join(
+    let ((main_api, chain_api), (merkle_tree_api, (decomposition_api, mult))) = join(
         || {
             join(
                 || main.generate_air_proof_input(),
@@ -64,7 +64,7 @@ where
         },
         || {
             join(
-                || poseidon2_t24.generate_air_proof_input(),
+                || merkle_tree.generate_air_proof_input(),
                 || decomposition.generate_air_proof_input_and_range_check_mult(),
             )
         },
@@ -75,7 +75,7 @@ where
     (airs, vec![
         main_api,
         chain_api,
-        poseidon2_t24_api,
+        merkle_tree_api,
         decomposition_api,
         range_check_api,
     ])

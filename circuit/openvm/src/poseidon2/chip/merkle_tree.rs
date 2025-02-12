@@ -85,8 +85,8 @@ where
                 )),
                 public_values: iter::empty()
                     .chain([F::from_canonical_u32(self.epoch)])
-                    .chain(encode_tweak_msg(self.epoch))
                     .chain(self.encoded_msg)
+                    .chain(encode_tweak_msg(self.epoch))
                     .chain(encode_tweak_merkle_tree(0, self.epoch))
                     .collect(),
             },

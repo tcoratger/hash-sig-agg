@@ -98,8 +98,9 @@ where
     builder.push_send(
         Bus::MsgHash as usize,
         iter::empty()
-            .chain(cols.merkle_root)
+            .chain([cols.sig_idx])
             .chain(cols.parameter)
+            .chain(cols.merkle_root)
             .chain(cols.msg_hash),
         *cols.is_active,
     );

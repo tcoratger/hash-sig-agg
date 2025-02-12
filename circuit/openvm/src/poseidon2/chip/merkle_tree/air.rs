@@ -60,7 +60,7 @@ impl PartitionedBaseAir<F> for MerkleTreeAir {}
 
 impl BaseAirWithPublicValues<F> for MerkleTreeAir {
     fn num_public_values(&self) -> usize {
-        1 + TWEAK_FE_LEN + MSG_FE_LEN + TWEAK_FE_LEN
+        1 + MSG_FE_LEN + 2 * TWEAK_FE_LEN
     }
 }
 
@@ -94,8 +94,8 @@ where
 
         let mut public_values = builder.public_values().iter().copied().map(Into::into);
         let epoch = public_values.next().unwrap();
-        let encoded_tweak_msg: [_; TWEAK_FE_LEN] = from_fn(|_| public_values.next().unwrap());
         let encoded_msg: [_; MSG_FE_LEN] = from_fn(|_| public_values.next().unwrap());
+        let encoded_tweak_msg: [_; TWEAK_FE_LEN] = from_fn(|_| public_values.next().unwrap());
         let encoded_tweak_merkle_leaf: [_; TWEAK_FE_LEN] =
             from_fn(|_| public_values.next().unwrap());
 
@@ -360,8 +360,9 @@ where
     builder.push_receive(
         Bus::MsgHash as usize,
         iter::empty()
-            .chain(local.root.map(Into::into))
+            .chain([local.sig_idx.into()])
             .chain(local.msg_hash_parameter().map(Into::into))
+            .chain(local.root.map(Into::into))
             .chain(local.msg_hash::<AB>()),
         local.is_msg,
     );

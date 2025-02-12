@@ -80,19 +80,16 @@ impl<T: Copy> ChainCols<T> {
         self.chain_step_bits[1].into()
     }
 
-    pub fn parameter(&self) -> &[T] {
-        &self.perm.inputs[..PARAM_FE_LEN]
+    pub fn parameter(&self) -> [T; PARAM_FE_LEN] {
+        from_fn(|i| self.perm.inputs[i])
     }
 
-    pub fn encoded_tweak_chain(&self) -> &[T] {
-        &self.perm.inputs[PARAM_FE_LEN..][..TWEAK_FE_LEN]
+    pub fn encoded_tweak_chain(&self) -> [T; TWEAK_FE_LEN] {
+        from_fn(|i| self.perm.inputs[PARAM_FE_LEN + i])
     }
 
-    pub fn chain_input<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]
-    where
-        T: Into<AB::Expr>,
-    {
-        from_fn(|i| self.perm.inputs[PARAM_FE_LEN + TWEAK_FE_LEN + i].into())
+    pub fn chain_input(&self) -> [T; TH_HASH_FE_LEN] {
+        from_fn(|i| self.perm.inputs[PARAM_FE_LEN + TWEAK_FE_LEN + i])
     }
 
     pub fn compression_output<AB: AirBuilder>(&self) -> [AB::Expr; TH_HASH_FE_LEN]

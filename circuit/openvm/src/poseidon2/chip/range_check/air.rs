@@ -1,7 +1,7 @@
 use crate::poseidon2::{
     F,
     chip::{
-        BUS_LIMB_RANGE_CHECK,
+        Bus,
         range_check::column::{NUM_RANGE_CHECK_COLS, RangeCheckCols},
     },
 };
@@ -54,7 +54,7 @@ where
         }
 
         // Interaction
-        receive_limb_range_check(builder, local);
+        receive_range_check(builder, local);
     }
 }
 
@@ -70,9 +70,9 @@ fn eval_range_check_transition<AB>(
 }
 
 #[inline]
-fn receive_limb_range_check<AB>(builder: &mut AB, cols: &RangeCheckCols<AB::Var>)
+fn receive_range_check<AB>(builder: &mut AB, cols: &RangeCheckCols<AB::Var>)
 where
     AB: InteractionBuilder<F = F>,
 {
-    builder.push_receive(BUS_LIMB_RANGE_CHECK, [cols.value], cols.mult);
+    builder.push_receive(Bus::RangeCheck as usize, [cols.value], cols.mult);
 }

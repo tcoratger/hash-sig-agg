@@ -3,7 +3,7 @@ use crate::poseidon2::{
     chip::poseidon2_t24::{
         air::Poseidon2T24Air, column::NUM_POSEIDON2_T24_COLS, generation::generate_trace_rows,
     },
-    hash_sig::{MSG_FE_LEN, VerificationTrace, encode_tweak_msg},
+    hash_sig::{MSG_FE_LEN, VerificationTrace, encode_tweak_merkle_tree, encode_tweak_msg},
 };
 use core::{any::type_name, iter};
 use generation::trace_height;
@@ -86,6 +86,7 @@ where
                     .chain([F::from_canonical_u32(self.epoch)])
                     .chain(encode_tweak_msg(self.epoch))
                     .chain(self.encoded_msg)
+                    .chain(encode_tweak_merkle_tree(0, self.epoch))
                     .collect(),
             },
         }

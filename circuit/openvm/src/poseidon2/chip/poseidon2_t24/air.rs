@@ -4,15 +4,15 @@ use crate::{
         F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, RC24, SBOX_DEGREE,
         SBOX_REGISTERS,
         chip::{
-            BUS_MERKLE_TREE, BUS_MSG_HASH,
+            Bus,
             poseidon2_t24::{
                 PARTIAL_ROUNDS, WIDTH,
                 column::{NUM_POSEIDON2_T24_COLS, Poseidon2T24Cols},
             },
         },
         hash_sig::{
-            LOG_LIFETIME, MSG_FE_LEN, PARAM_FE_LEN, RHO_FE_LEN, SPONGE_CAPACITY_VALUES,
-            SPONGE_PERM, SPONGE_RATE, TH_HASH_FE_LEN, TWEAK_FE_LEN,
+            LOG_LIFETIME, MSG_FE_LEN, SPONGE_CAPACITY_VALUES, SPONGE_PERM, SPONGE_RATE,
+            TH_HASH_FE_LEN, TWEAK_FE_LEN,
         },
     },
 };
@@ -59,7 +59,7 @@ impl PartitionedBaseAir<F> for Poseidon2T24Air {}
 
 impl BaseAirWithPublicValues<F> for Poseidon2T24Air {
     fn num_public_values(&self) -> usize {
-        1 + TWEAK_FE_LEN + MSG_FE_LEN
+        1 + TWEAK_FE_LEN + MSG_FE_LEN + TWEAK_FE_LEN
     }
 }
 
@@ -91,11 +91,12 @@ where
 
         let main = builder.main();
 
-        let epoch = builder.public_values()[0].into();
-        let encoded_tweak_msg: [_; TWEAK_FE_LEN] =
-            from_fn(|i| builder.public_values()[1 + i].into());
-        let encoded_msg: [_; MSG_FE_LEN] =
-            from_fn(|i| builder.public_values()[1 + TWEAK_FE_LEN + i].into());
+        let mut public_values = builder.public_values().iter().copied().map(Into::into);
+        let epoch = public_values.next().unwrap();
+        let encoded_tweak_msg: [_; TWEAK_FE_LEN] = from_fn(|_| public_values.next().unwrap());
+        let encoded_msg: [_; MSG_FE_LEN] = from_fn(|_| public_values.next().unwrap());
+        let encoded_tweak_merkle_leaf: [_; TWEAK_FE_LEN] =
+            from_fn(|_| public_values.next().unwrap());
 
         let local = main.row_slice(0);
         let next = main.row_slice(1);
@@ -104,26 +105,33 @@ where
 
         // When every row
         eval_every_row(builder, local);
+        eval_merkle_leaf_every_row(builder, local);
 
         // When first row
         {
             let mut builder = builder.when_first_row();
 
             builder.assert_zero(local.sig_idx);
-            builder.assert_one(local.is_merkle_leaf);
-            eval_merkle_leaf_first_row(&mut builder.when(local.is_merkle_leaf), local)
+            builder.assert_one(local.is_msg);
         }
 
         // When transition
         {
             let mut builder = builder.when_transition();
 
-            eval_merkle_transition(&mut builder, local, next);
+            eval_sig_transition(&mut builder, local, next);
+            eval_msg_transition(
+                &mut builder,
+                encoded_tweak_msg,
+                encoded_msg,
+                encoded_tweak_merkle_leaf,
+                local,
+                next,
+            );
             eval_merkle_leaf_transition(&mut builder, local, next);
             eval_merkle_leaf_last_row(&mut builder, epoch, local, next);
             eval_merkle_path_transition(&mut builder, local, next);
             eval_merkle_path_last_row(&mut builder, local, next);
-            eval_msg_transition(&mut builder, encoded_tweak_msg, encoded_msg, local, next);
             eval_padding_transition(&mut builder, local, next);
         }
 
@@ -166,17 +174,57 @@ where
 }
 
 #[inline]
-fn eval_merkle_transition<AB>(
+fn eval_sig_transition<AB>(
     builder: &mut AB,
     local: &Poseidon2T24Cols<AB::Var>,
     next: &Poseidon2T24Cols<AB::Var>,
 ) where
     AB: AirBuilder<F = F>,
 {
-    let mut builder = builder.when(local.is_merkle_transition::<AB>());
+    let mut builder = builder.when(local.is_sig_transition::<AB>());
 
     zip(local.root, next.root).for_each(|(a, b)| builder.assert_eq(a, b));
     builder.assert_eq(local.sig_idx, next.sig_idx);
+}
+
+#[inline]
+fn eval_msg_transition<AB>(
+    builder: &mut AB,
+    encoded_tweak_msg: [AB::Expr; TWEAK_FE_LEN],
+    encoded_msg: [AB::Expr; MSG_FE_LEN],
+    encoded_tweak_merkle_leaf: [AB::Expr; TWEAK_FE_LEN],
+    local: &Poseidon2T24Cols<AB::Var>,
+    next: &Poseidon2T24Cols<AB::Var>,
+) where
+    AB: AirBuilder<F = F>,
+{
+    let mut builder = builder.when(local.is_msg);
+
+    builder.assert_one(next.is_merkle_leaf);
+    zip(local.encoded_tweak_msg(), encoded_tweak_msg).for_each(|(a, b)| builder.assert_eq(a, b));
+    zip(local.encoded_msg(), encoded_msg).for_each(|(a, b)| builder.assert_eq(a, b));
+    zip(next.merkle_leaf_parameter(), local.msg_hash_parameter())
+        .for_each(|(a, b)| builder.assert_eq(a, b));
+    zip(next.encoded_tweak_merkle_leaf(), encoded_tweak_merkle_leaf)
+        .for_each(|(a, b)| builder.assert_eq(a, b));
+    eval_merkle_leaf_first_row(&mut builder, next);
+}
+
+#[inline]
+fn eval_merkle_leaf_every_row<AB>(builder: &mut AB, cols: &Poseidon2T24Cols<AB::Var>)
+where
+    AB: AirBuilder<F = F>,
+{
+    let mut builder = builder.when(cols.is_merkle_leaf);
+
+    builder.assert_eq(
+        AB::Expr::TWO,
+        cols.leaf_chunk_start_ind[1..]
+            .iter()
+            .copied()
+            .map(Into::into)
+            .sum::<AB::Expr>(),
+    );
 }
 
 #[inline]
@@ -207,22 +255,6 @@ fn eval_merkle_leaf_transition<AB>(
 
     builder.assert_one(next.is_merkle_leaf);
     builder.assert_eq(next.sponge_step, local.sponge_step + AB::Expr::ONE);
-    builder.when(local.leaf_chunk_start_ind[0]).assert_eq(
-        AB::Expr::TWO,
-        next.leaf_chunk_start_ind
-            .iter()
-            .copied()
-            .map(Into::into)
-            .sum::<AB::Expr>(),
-    );
-    builder.when(local.leaf_chunk_start_ind[1]).assert_eq(
-        AB::Expr::ONE + AB::Expr::TWO,
-        next.leaf_chunk_start_ind
-            .iter()
-            .copied()
-            .map(Into::into)
-            .sum::<AB::Expr>(),
-    );
     (1..TH_HASH_FE_LEN + 1).for_each(|i| {
         (i - 1..TH_HASH_FE_LEN)
             .step_by(TH_HASH_FE_LEN)
@@ -297,41 +329,11 @@ fn eval_merkle_path_last_row<AB>(
     let mut builder =
         builder.when(local.is_merkle_path.into() - local.is_merkle_path_transition.into());
 
-    builder.assert_one(next.is_merkle_leaf.into() + next.is_msg.into());
+    builder.assert_zero(next.is_merkle_leaf.into() + next.is_merkle_path.into());
     zip(local.root, local.compress_output::<AB>()).for_each(|(a, b)| builder.assert_eq(a, b));
-    builder
-        .when(next.is_merkle_leaf)
-        .assert_eq(next.sig_idx, local.sig_idx + F::ONE);
-    eval_merkle_leaf_first_row(&mut builder.when(next.is_merkle_leaf), next);
-    builder.when(next.is_msg).assert_eq(next.sig_idx, F::ZERO);
-}
-
-#[inline]
-fn eval_msg_transition<AB>(
-    builder: &mut AB,
-    encoded_tweak_msg: [AB::Expr; TWEAK_FE_LEN],
-    encoded_msg: [AB::Expr; MSG_FE_LEN],
-    local: &Poseidon2T24Cols<AB::Var>,
-    next: &Poseidon2T24Cols<AB::Var>,
-) where
-    AB: AirBuilder<F = F>,
-{
-    let mut builder = builder.when(local.is_msg);
-
     builder
         .when(next.is_msg)
         .assert_eq(next.sig_idx, local.sig_idx + F::ONE);
-    builder.assert_zero(next.is_merkle_leaf.into() + next.is_merkle_path.into());
-    zip(
-        &local.perm.inputs[RHO_FE_LEN..][..TWEAK_FE_LEN],
-        encoded_tweak_msg,
-    )
-    .for_each(|(a, b)| builder.assert_eq(*a, b));
-    zip(
-        &local.perm.inputs[RHO_FE_LEN + TWEAK_FE_LEN..][..MSG_FE_LEN],
-        encoded_msg,
-    )
-    .for_each(|(a, b)| builder.assert_eq(*a, b));
 }
 
 #[inline]
@@ -344,6 +346,8 @@ fn eval_padding_transition<AB>(
 {
     let mut builder = builder.when(local.is_padding::<AB>());
 
+    builder.assert_zero(local.sig_idx);
+    local.is_recevie_merkle_tree.map(|v| builder.assert_zero(v));
     builder.assert_one(next.is_padding::<AB>());
 }
 
@@ -353,14 +357,10 @@ where
     AB: InteractionBuilder<F = F>,
 {
     builder.push_receive(
-        BUS_MSG_HASH,
+        Bus::MsgHash as usize,
         iter::empty()
-            .chain(
-                local.perm.inputs[RHO_FE_LEN + TWEAK_FE_LEN + MSG_FE_LEN..][..PARAM_FE_LEN]
-                    .iter()
-                    .copied()
-                    .map(Into::into),
-            )
+            .chain(local.root.map(Into::into))
+            .chain(local.msg_hash_parameter().map(Into::into))
             .chain(local.msg_hash::<AB>()),
         local.is_msg,
     );
@@ -375,7 +375,7 @@ fn receive_merkle_tree<AB>(
     AB: InteractionBuilder<F = F>,
 {
     builder.push_receive(
-        BUS_MERKLE_TREE,
+        Bus::MerkleLeaf as usize,
         iter::empty()
             .chain([local.sig_idx.into(), local.leaf_chunk_idx.into()])
             .chain(
@@ -387,7 +387,7 @@ fn receive_merkle_tree<AB>(
         local.is_recevie_merkle_tree[0] * local.leaf_chunk_start_ind[0].into(),
     );
     builder.push_receive(
-        BUS_MERKLE_TREE,
+        Bus::MerkleLeaf as usize,
         iter::empty()
             .chain([
                 local.sig_idx.into(),
@@ -402,7 +402,7 @@ fn receive_merkle_tree<AB>(
         local.is_recevie_merkle_tree[1],
     );
     builder.push_receive(
-        BUS_MERKLE_TREE,
+        Bus::MerkleLeaf as usize,
         iter::empty()
             .chain([
                 local.sig_idx.into(),

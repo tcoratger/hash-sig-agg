@@ -3,7 +3,7 @@ use crate::{
     poseidon2::{
         F,
         chip::{
-            BUS_CHAIN, BUS_DECOMPOSITION, BUS_LIMB_RANGE_CHECK,
+            Bus,
             decomposition::{
                 F_MS_LIMB, LIMB_BITS, NUM_LIMBS, NUM_MSG_HASH_LIMBS,
                 column::{DecompositionCols, NUM_DECOMPOSITION_COLS},
@@ -73,7 +73,7 @@ where
 
         // Interaction
         send_chain(builder, local);
-        send_limb_range_check(builder, local);
+        send_range_check(builder, local);
         receive_decomposition(builder, local);
     }
 }
@@ -272,7 +272,7 @@ fn eval_decomposition_transition<AB>(
 }
 
 #[inline]
-fn send_limb_range_check<AB>(builder: &mut AB, cols: &DecompositionCols<AB::Var>)
+fn send_range_check<AB>(builder: &mut AB, cols: &DecompositionCols<AB::Var>)
 where
     AB: InteractionBuilder<F = F>,
 {
@@ -282,7 +282,7 @@ where
         .chain(&cols.acc_limbs)
         .chain(&cols.carries)
     {
-        builder.push_send(BUS_LIMB_RANGE_CHECK, [*limb], cols.is_acc::<AB>());
+        builder.push_send(Bus::RangeCheck as usize, [*limb], cols.is_acc::<AB>());
     }
 }
 
@@ -302,7 +302,7 @@ where
         .for_each(|(chunk_idx, chunk)| {
             let is_mid_of_chain = not(chunk.iter().copied().map(Into::into).product::<AB::Expr>());
             builder.push_send(
-                BUS_CHAIN,
+                Bus::Chain as usize,
                 [
                     cols.sig_idx.into(),
                     i_offset.clone() + AB::Expr::from_canonical_usize(chunk_idx),
@@ -321,7 +321,7 @@ where
     AB: InteractionBuilder<F = F>,
 {
     builder.push_receive(
-        BUS_DECOMPOSITION,
+        Bus::Decomposition as usize,
         iter::empty().chain([cols.sig_idx]).chain(cols.values),
         cols.is_acc_last_row::<AB>(),
     );

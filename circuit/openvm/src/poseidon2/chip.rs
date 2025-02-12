@@ -21,11 +21,15 @@ pub mod main;
 pub mod poseidon2_t24;
 pub mod range_check;
 
-pub const BUS_MSG_HASH: usize = 0;
-pub const BUS_CHAIN: usize = 1;
-pub const BUS_MERKLE_TREE: usize = 2;
-pub const BUS_DECOMPOSITION: usize = 3;
-pub const BUS_LIMB_RANGE_CHECK: usize = 4;
+#[repr(u8)]
+pub enum Bus {
+    Parameter,
+    MsgHash,
+    Chain,
+    MerkleLeaf,
+    Decomposition,
+    RangeCheck,
+}
 
 pub fn generate_air_proof_inputs<SC: StarkGenericConfig>(
     extra_capacity_bits: usize,
@@ -41,7 +45,7 @@ where
         .into_par_iter()
         .map(|(pk, sig)| VerificationTrace::generate(epoch, encoded_msg, pk, sig))
         .collect::<Vec<_>>();
-    let main = MainChip::new(extra_capacity_bits, epoch, &traces);
+    let main = MainChip::new(extra_capacity_bits, &traces);
     let chain = ChainChip::new(extra_capacity_bits, epoch, &traces);
     let poseidon2_t24 = Poseidon2T24Chip::new(extra_capacity_bits, epoch, encoded_msg, &traces);
     let decomposition = DecompositionChip::new(extra_capacity_bits, &traces);
@@ -89,7 +93,7 @@ mod test {
 
     #[test]
     fn chip() {
-        for log_sigs in 0..3 {
+        for log_sigs in 0..10 {
             let (epoch, msg, pairs) = testdata(log_sigs);
             let (airs, inputs) = generate_air_proof_inputs(1, epoch, msg, pairs);
             run::<F, E>(airs, inputs).unwrap();

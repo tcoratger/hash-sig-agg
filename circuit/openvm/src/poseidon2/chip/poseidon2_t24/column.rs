@@ -3,7 +3,10 @@ use crate::{
     poseidon2::{
         HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::poseidon2_t24::{PARTIAL_ROUNDS, WIDTH},
-        hash_sig::{MSG_HASH_FE_LEN, PARAM_FE_LEN, SPONGE_RATE, TH_HASH_FE_LEN, TWEAK_FE_LEN},
+        hash_sig::{
+            MSG_FE_LEN, MSG_HASH_FE_LEN, PARAM_FE_LEN, RHO_FE_LEN, SPONGE_RATE, TH_HASH_FE_LEN,
+            TWEAK_FE_LEN,
+        },
     },
 };
 use core::{
@@ -39,11 +42,11 @@ pub struct Poseidon2T24Cols<T> {
 }
 
 impl<T: Copy> Poseidon2T24Cols<T> {
-    pub fn is_merkle_transition<AB: AirBuilder>(&self) -> AB::Expr
+    pub fn is_sig_transition<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
     {
-        self.is_merkle_leaf.into() + self.is_merkle_path_transition.into()
+        self.is_msg.into() + self.is_merkle_leaf.into() + self.is_merkle_path_transition.into()
     }
 
     pub fn is_padding<AB: AirBuilder>(&self) -> AB::Expr
@@ -51,6 +54,26 @@ impl<T: Copy> Poseidon2T24Cols<T> {
         T: Into<AB::Expr>,
     {
         not(self.is_msg.into() + self.is_merkle_leaf.into() + self.is_merkle_path.into())
+    }
+
+    pub fn msg_hash_parameter(&self) -> [T; PARAM_FE_LEN] {
+        from_fn(|i| self.perm.inputs[RHO_FE_LEN + TWEAK_FE_LEN + MSG_FE_LEN + i])
+    }
+
+    pub fn encoded_tweak_msg(&self) -> [T; PARAM_FE_LEN] {
+        from_fn(|i| self.perm.inputs[RHO_FE_LEN + i])
+    }
+
+    pub fn encoded_msg(&self) -> [T; PARAM_FE_LEN] {
+        from_fn(|i| self.perm.inputs[RHO_FE_LEN + TWEAK_FE_LEN + i])
+    }
+
+    pub fn merkle_leaf_parameter(&self) -> [T; PARAM_FE_LEN] {
+        from_fn(|i| self.sponge_block[i])
+    }
+
+    pub fn encoded_tweak_merkle_leaf(&self) -> [T; TWEAK_FE_LEN] {
+        from_fn(|i| self.sponge_block[PARAM_FE_LEN + i])
     }
 
     pub fn msg_hash<AB: AirBuilder>(&self) -> [AB::Expr; MSG_HASH_FE_LEN]

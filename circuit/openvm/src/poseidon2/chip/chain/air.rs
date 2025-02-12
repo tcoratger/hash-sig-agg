@@ -3,7 +3,7 @@ use crate::{
     poseidon2::{
         F, GenericPoseidon2LinearLayersHorizon, HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
         chip::{
-            BUS_CHAIN, BUS_MERKLE_TREE,
+            Bus,
             chain::{
                 column::{ChainCols, NUM_CHAIN_COLS},
                 poseidon2::{PARTIAL_ROUNDS, WIDTH},
@@ -96,8 +96,6 @@ where
 
             builder.assert_one(*local.is_active);
             builder.assert_zero(local.sig_idx);
-            builder.assert_zero(local.sig_step);
-            builder.assert_eq(local.sum, local.chain_step::<AB>());
             eval_sig_first_row(&mut builder, local);
         }
 
@@ -113,6 +111,7 @@ where
         }
 
         // Interaction
+        receive_parameter(builder, local);
         receive_chain(builder, local);
         send_merkle_tree(builder, local);
     }
@@ -157,14 +156,6 @@ where
             ),
         ),
     );
-    builder.assert_eq(
-        next.sig_step,
-        select(
-            local.is_last_sig_row.output.into(),
-            local.sig_step.into() + *local.is_active,
-            AB::Expr::ZERO,
-        ),
-    );
 }
 
 #[inline]
@@ -172,6 +163,7 @@ fn eval_sig_first_row<AB>(builder: &mut AB, cols: &ChainCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
 {
+    builder.assert_zero(cols.sig_step);
     builder.assert_eq(
         cols.sum,
         cols.chain_idx * F::from_canonical_usize((1 << CHUNK_SIZE) - 1) + cols.chain_step::<AB>(),
@@ -185,7 +177,8 @@ where
 {
     let mut builder = builder.when(local.is_sig_transition::<AB>());
 
-    zip(next.parameter(), local.parameter()).for_each(|(a, b)| builder.assert_eq(*a, *b));
+    builder.assert_eq(next.sig_step, local.sig_step.into() + AB::Expr::ONE);
+    zip(next.parameter(), local.parameter()).for_each(|(a, b)| builder.assert_eq(a, b));
 }
 
 #[inline]
@@ -216,7 +209,7 @@ fn eval_chain_transition<AB>(
         next.chain_step::<AB>(),
         local.chain_step::<AB>() + AB::Expr::ONE,
     );
-    zip(next.chain_input::<AB>(), local.compression_output::<AB>())
+    zip(next.chain_input(), local.compression_output::<AB>())
         .for_each(|(a, b)| builder.assert_eq(a, b));
 }
 
@@ -245,12 +238,26 @@ where
 }
 
 #[inline]
+fn receive_parameter<AB>(builder: &mut AB, local: &ChainCols<AB::Var>)
+where
+    AB: InteractionBuilder<F = F>,
+{
+    builder.push_receive(
+        Bus::Parameter as usize,
+        iter::empty()
+            .chain([local.sig_idx])
+            .chain(local.parameter()),
+        (*local.is_active).into() * local.is_last_sig_row.output.into(),
+    );
+}
+
+#[inline]
 fn receive_chain<AB>(builder: &mut AB, local: &ChainCols<AB::Var>)
 where
     AB: InteractionBuilder<F = F>,
 {
     builder.push_receive(
-        BUS_CHAIN,
+        Bus::Chain as usize,
         [
             local.sig_idx.into(),
             local.chain_idx.into(),
@@ -266,7 +273,7 @@ where
     AB: InteractionBuilder<F = F>,
 {
     builder.push_send(
-        BUS_MERKLE_TREE,
+        Bus::MerkleLeaf as usize,
         iter::empty()
             .chain([local.sig_idx.into(), local.chain_idx.into() + AB::Expr::ONE])
             .chain(local.compression_output::<AB>()),

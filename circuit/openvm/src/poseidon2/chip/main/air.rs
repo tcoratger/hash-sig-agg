@@ -1,16 +1,14 @@
 use crate::poseidon2::{
     F,
     chip::{
-        BUS_DECOMPOSITION, BUS_MERKLE_TREE, BUS_MSG_HASH,
+        Bus,
         main::column::{MainCols, NUM_MAIN_COLS},
     },
-    hash_sig::TWEAK_FE_LEN,
 };
-use core::{array::from_fn, borrow::Borrow, iter};
+use core::{borrow::Borrow, iter};
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
     p3_air::{Air, AirBuilder, AirBuilderWithPublicValues, BaseAir},
-    p3_field::FieldAlgebra,
     p3_matrix::Matrix,
     rap::{BaseAirWithPublicValues, PartitionedBaseAir},
 };
@@ -26,11 +24,7 @@ impl BaseAir<F> for MainAir {
 
 impl PartitionedBaseAir<F> for MainAir {}
 
-impl BaseAirWithPublicValues<F> for MainAir {
-    fn num_public_values(&self) -> usize {
-        TWEAK_FE_LEN
-    }
-}
+impl BaseAirWithPublicValues<F> for MainAir {}
 
 impl<AB> Air<AB> for MainAir
 where
@@ -38,9 +32,6 @@ where
 {
     fn eval(&self, builder: &mut AB) {
         let main = builder.main();
-
-        let encoded_tweak_merkle_leaf: [_; TWEAK_FE_LEN] =
-            from_fn(|i| builder.public_values()[i].into());
 
         let local = main.row_slice(0);
         let next = main.row_slice(1);
@@ -65,8 +56,8 @@ where
         }
 
         // Interaction
+        send_parameter(builder, local);
         send_msg_hash(builder, local);
-        send_merkle_tree(builder, encoded_tweak_merkle_leaf, local);
         send_decomposition(builder, local);
     }
 }
@@ -87,17 +78,29 @@ where
     local.is_active.eval_transition(builder, &next.is_active);
 }
 
-// TODO: Send parameter to chain to make sure they all use same parameter
+#[inline]
+fn send_parameter<AB>(builder: &mut AB, cols: &MainCols<AB::Var>)
+where
+    AB: InteractionBuilder<F = F>,
+{
+    builder.push_send(
+        Bus::Parameter as usize,
+        iter::empty().chain([cols.sig_idx]).chain(cols.parameter),
+        *cols.is_active,
+    );
+}
 
-// TODO: Send also merkle root
 #[inline]
 fn send_msg_hash<AB>(builder: &mut AB, cols: &MainCols<AB::Var>)
 where
     AB: InteractionBuilder<F = F>,
 {
     builder.push_send(
-        BUS_MSG_HASH,
-        iter::empty().chain(cols.parameter).chain(cols.msg_hash),
+        Bus::MsgHash as usize,
+        iter::empty()
+            .chain(cols.merkle_root)
+            .chain(cols.parameter)
+            .chain(cols.msg_hash),
         *cols.is_active,
     );
 }
@@ -108,29 +111,10 @@ where
     AB: InteractionBuilder<F = F>,
 {
     builder.push_send(
-        BUS_DECOMPOSITION,
+        Bus::Decomposition as usize,
         iter::empty()
             .chain([cols.sig_idx])
             .chain(cols.msg_hash.into_iter().rev()),
-        *cols.is_active,
-    );
-}
-
-// TODO: Remove this
-#[inline]
-fn send_merkle_tree<AB>(
-    builder: &mut AB,
-    encoded_tweak_merkle_leaf: [AB::Expr; 2],
-    cols: &MainCols<AB::Var>,
-) where
-    AB: InteractionBuilder<F = F> + AirBuilderWithPublicValues,
-{
-    builder.push_send(
-        BUS_MERKLE_TREE,
-        iter::empty()
-            .chain([cols.sig_idx.into(), AB::Expr::ZERO])
-            .chain(cols.parameter.iter().copied().map(Into::into))
-            .chain(encoded_tweak_merkle_leaf.map(Into::into)),
         *cols.is_active,
     );
 }

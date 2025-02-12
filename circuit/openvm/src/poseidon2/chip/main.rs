@@ -1,7 +1,7 @@
 use crate::poseidon2::{
     F,
     chip::main::{air::MainAir, column::NUM_MAIN_COLS},
-    hash_sig::{VerificationTrace, encode_tweak_merkle_tree},
+    hash_sig::VerificationTrace,
 };
 use core::any::type_name;
 use generation::{generate_trace_rows, trace_height};
@@ -20,15 +20,13 @@ mod generation;
 
 pub struct MainChip<'a> {
     extra_capacity_bits: usize,
-    epoch: u32,
     traces: &'a [VerificationTrace],
 }
 
 impl<'a> MainChip<'a> {
-    pub fn new(extra_capacity_bits: usize, epoch: u32, traces: &'a [VerificationTrace]) -> Self {
+    pub fn new(extra_capacity_bits: usize, traces: &'a [VerificationTrace]) -> Self {
         Self {
             extra_capacity_bits,
-            epoch,
             traces,
         }
     }
@@ -62,7 +60,7 @@ where
             raw: AirProofRawInput {
                 cached_mains: Vec::new(),
                 common_main: Some(generate_trace_rows(self.extra_capacity_bits, self.traces)),
-                public_values: encode_tweak_merkle_tree(0, self.epoch).to_vec(),
+                public_values: Vec::new(),
             },
         }
     }

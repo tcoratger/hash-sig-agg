@@ -41,7 +41,7 @@ impl<T: Copy, const N: usize> CycleInt<T, N> {
         T: Into<AB::Expr>,
     {
         self.is_last_step
-            .eval(builder, self.step, AB::Expr::from_canonical_usize(N - 1))
+            .eval(builder, self.step, AB::Expr::from_canonical_usize(N - 1));
     }
 
     #[inline]

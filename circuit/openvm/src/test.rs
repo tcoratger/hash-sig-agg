@@ -1,5 +1,4 @@
 use openvm_stark_backend::{
-    AirRef,
     config::StarkConfig,
     engine::VerificationData,
     interaction::fri_log_up::FriLogUpPhase,
@@ -8,6 +7,7 @@ use openvm_stark_backend::{
     p3_field::{ExtensionField, PrimeField32, TwoAdicField},
     prover::types::AirProofInput,
     verifier::VerificationError,
+    AirRef,
 };
 use openvm_stark_sdk::{engine::StarkEngine, p3_keccak::Keccak256Hash};
 use p3_dft::Radix2DitParallel;
@@ -54,7 +54,7 @@ where
         };
         let pcs = Pcs::new(dft, val_mmcs, fri_config);
         let rap_phase = RapPhase::new();
-        Engine {
+        Self {
             config: Config::new(pcs, rap_phase),
         }
     }

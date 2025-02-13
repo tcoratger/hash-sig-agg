@@ -84,7 +84,7 @@ impl<T: Copy, const N: usize> CycleBits<T, N> {
     where
         T: Into<AB::Expr>,
     {
-        self.into_iter().map(Into::into).sum::<AB::Expr>()
+        self.into_iter().map(Into::into).sum()
     }
 
     #[inline]
@@ -92,10 +92,7 @@ impl<T: Copy, const N: usize> CycleBits<T, N> {
     where
         T: Into<AB::Expr>,
     {
-        self.into_iter()
-            .take(N - 1)
-            .map(Into::into)
-            .sum::<AB::Expr>()
+        self.into_iter().take(N - 1).map(Into::into).sum()
     }
 
     #[inline]

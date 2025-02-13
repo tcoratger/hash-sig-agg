@@ -12,7 +12,7 @@ use openvm_stark_backend::{
     p3_maybe_rayon::prelude::*,
 };
 
-pub fn trace_height(traces: &[VerificationTrace]) -> usize {
+pub const fn trace_height(traces: &[VerificationTrace]) -> usize {
     traces.len().next_power_of_two()
 }
 

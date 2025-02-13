@@ -1,18 +1,18 @@
 use crate::poseidon2::{
-    F,
     chip::range_check::{
         air::RangeCheckAir,
         column::NUM_RANGE_CHECK_COLS,
         generation::{generate_trace_rows, trace_height},
     },
+    F,
 };
 use core::any::type_name;
 use openvm_stark_backend::{
-    Chip, ChipUsageGetter,
     config::{Domain, StarkGenericConfig},
     p3_commit::PolynomialSpace,
     prover::types::{AirProofInput, AirProofRawInput},
     rap::AnyRap,
+    Chip, ChipUsageGetter,
 };
 use std::sync::Arc;
 
@@ -27,7 +27,7 @@ pub struct RangeCheckChip {
 }
 
 impl RangeCheckChip {
-    pub fn new(extra_capacity_bits: usize, mult: Vec<u32>) -> Self {
+    pub const fn new(extra_capacity_bits: usize, mult: Vec<u32>) -> Self {
         Self {
             extra_capacity_bits,
             mult,

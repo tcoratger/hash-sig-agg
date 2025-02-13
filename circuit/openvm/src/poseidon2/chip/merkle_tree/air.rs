@@ -8,7 +8,7 @@ use crate::{
             },
             Bus,
         },
-        hash_sig::{MSG_FE_LEN, SPONGE_CAPACITY_VALUES, SPONGE_RATE, HASH_FE_LEN, TWEAK_FE_LEN},
+        hash_sig::{HASH_FE_LEN, MSG_FE_LEN, SPONGE_CAPACITY_VALUES, SPONGE_RATE, TWEAK_FE_LEN},
         GenericPoseidon2LinearLayersHorizon, F, HALF_FULL_ROUNDS, RC24, SBOX_DEGREE,
         SBOX_REGISTERS,
     },
@@ -247,24 +247,22 @@ fn eval_merkle_leaf_transition<AB>(
     local
         .sponge_step
         .eval_transition(&mut builder, &next.sponge_step);
-    (1..HASH_FE_LEN + 1).for_each(|i| {
-        (i - 1..HASH_FE_LEN)
-            .step_by(HASH_FE_LEN)
-            .for_each(|j| {
-                builder
-                    .when(local.leaf_chunk_start_ind[i])
-                    .assert_one(next.leaf_chunk_start_ind[j])
-            })
+    (1..=HASH_FE_LEN).for_each(|i| {
+        (i - 1..HASH_FE_LEN).step_by(HASH_FE_LEN).for_each(|j| {
+            builder
+                .when(local.leaf_chunk_start_ind[i])
+                .assert_one(next.leaf_chunk_start_ind[j]);
+        });
     });
     zip(next.perm.inputs, local.sponge_output())
         .enumerate()
         .for_each(|(idx, (input, output))| {
             if let Some(block) = next.sponge_block.get(idx).copied() {
-                builder.assert_eq(input, output + block.into())
+                builder.assert_eq(input, output + block.into());
             } else {
-                builder.assert_eq(input, output)
+                builder.assert_eq(input, output);
             }
-        })
+        });
 }
 
 #[inline]

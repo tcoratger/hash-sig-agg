@@ -1,8 +1,9 @@
 use crate::{concat_array, instantiation::Instantiation, LOG_LIFETIME, MSG_LEN};
-use core::{array::from_fn, fmt::Debug, iter::zip};
+use core::{array::from_fn, fmt::Debug, iter::zip, marker::PhantomData};
 use num_bigint::BigUint;
 use p3_field::PrimeField32;
 use rand::{distributions::Standard, prelude::Distribution, Rng};
+use serde::{Deserialize, Serialize};
 
 pub mod baby_bear_horizon;
 pub mod koala_bear_horizon;
@@ -15,16 +16,17 @@ pub const MSG_HASH_FE_LEN: usize = 5;
 pub const TWEAK_FE_LEN: usize = 2;
 pub const CHUNK_SIZE: usize = 2;
 pub const NUM_CHUNKS: usize = (31 * MSG_HASH_FE_LEN).div_ceil(CHUNK_SIZE);
+pub const TARGET_SUM: u16 = (NUM_CHUNKS + NUM_CHUNKS.div_ceil(2)) as u16;
 
 pub const SPONGE_CAPACITY: usize = 9;
 pub const SPONGE_RATE: usize = 24 - SPONGE_CAPACITY;
 pub const SPONGE_INPUT_SIZE: usize = PARAM_FE_LEN + TWEAK_FE_LEN + NUM_CHUNKS * HASH_FE_LEN;
 pub const SPONGE_PERM: usize = SPONGE_INPUT_SIZE.div_ceil(SPONGE_RATE);
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Poseidon2Instantiation<P>(P);
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct Poseidon2TargetSum<P>(PhantomData<P>);
 
-impl<P: Poseidon2Parameter> Instantiation<NUM_CHUNKS> for Poseidon2Instantiation<P>
+impl<P: Poseidon2Parameter> Instantiation<NUM_CHUNKS> for Poseidon2TargetSum<P>
 where
     Standard: Distribution<P::F>,
 {
@@ -49,14 +51,18 @@ where
         msg: [u8; MSG_LEN],
         parameter: Self::Parameter,
         rho: Self::Rho,
-    ) -> [u16; NUM_CHUNKS] {
+    ) -> Result<[u16; NUM_CHUNKS], String> {
         let msg_hash = P::compress_t24::<22, MSG_HASH_FE_LEN>(concat_array![
             rho,
             parameter,
             encode_tweak_msg(epoch),
             encode_msg(msg),
         ]);
-        msg_hash_to_chunks(msg_hash)
+        let x = msg_hash_to_chunks(msg_hash);
+        if x.into_iter().sum::<u16>() != TARGET_SUM {
+            return Err("Unmatched target sum".to_string());
+        }
+        Ok(x)
     }
 
     fn chain(
@@ -106,7 +112,7 @@ where
     }
 }
 
-pub trait Poseidon2Parameter: Clone + Copy + Debug + Default {
+pub trait Poseidon2Parameter: Clone + Copy + Debug + Sized + Send + Sync {
     type F: PrimeField32;
 
     const CAPACITY_VALUES: [Self::F; SPONGE_CAPACITY];

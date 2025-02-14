@@ -1,9 +1,9 @@
 extern crate alloc;
 
 use core::array::from_fn;
-use hash_sig::{
+use hash_sig_verifier::{
     instantiation::{
-        sha3::{Sha3Digest, Sha3Instantiation, NUM_CHUNKS},
+        sha3::{Sha3Digest, Sha3TargetSum, NUM_CHUNKS},
         Instantiation,
     },
     VerificationInput,
@@ -13,6 +13,7 @@ use openvm_keccak256_guest::keccak256;
 
 openvm::entry!(main);
 
+#[derive(Debug)]
 struct Keccak256;
 
 impl Sha3Digest for Keccak256 {
@@ -23,7 +24,7 @@ impl Sha3Digest for Keccak256 {
 }
 
 fn main() {
-    type I = Sha3Instantiation<Keccak256>;
+    type I = Sha3TargetSum<Keccak256>;
     let vi: VerificationInput<I, NUM_CHUNKS> = bincode::deserialize(&read_vec()).unwrap();
     vi.pairs.chunks(32).enumerate().for_each(|(idx, pairs)| {
         let outputs = pairs

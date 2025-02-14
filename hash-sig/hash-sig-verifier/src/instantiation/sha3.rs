@@ -1,21 +1,23 @@
 use crate::{concat_array, instantiation::Instantiation, LOG_LIFETIME, MSG_LEN};
-use core::{array::from_fn, iter::zip};
+use core::{array::from_fn, fmt::Debug, iter::zip, marker::PhantomData};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use sha3::Digest;
 
 pub use sha3::{Keccak256, Sha3_256};
 
-const PARAM_LEN: usize = 18;
-const HASH_LEN: usize = 26;
-const RHO_LEN: usize = 23;
-const MSG_HASH_LEN: usize = 18;
-const TWEAK_CHAIN_LEN: usize = 9;
-const TWEAK_MERKLE_TREE_LEN: usize = 6;
-const TWEAK_MSG_LEN: usize = 5;
-const CHUNK_SIZE: usize = 2;
+pub const PARAM_LEN: usize = 18;
+pub const HASH_LEN: usize = 26;
+pub const RHO_LEN: usize = 23;
+pub const MSG_HASH_LEN: usize = 18;
+pub const TWEAK_CHAIN_LEN: usize = 9;
+pub const TWEAK_MERKLE_TREE_LEN: usize = 6;
+pub const TWEAK_MSG_LEN: usize = 5;
+pub const CHUNK_SIZE: usize = 2;
 pub const NUM_CHUNKS: usize = (8 * MSG_HASH_LEN).div_ceil(CHUNK_SIZE);
+pub const TARGET_SUM: u16 = (NUM_CHUNKS + NUM_CHUNKS.div_ceil(2)) as u16;
 
-pub trait Sha3Digest {
+pub trait Sha3Digest: Debug + Sized + Send + Sync {
     fn sha3_digest<const I: usize, const O: usize>(input: [u8; I]) -> [u8; O];
 }
 
@@ -33,10 +35,18 @@ impl Sha3Digest for Sha3_256 {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Sha3Instantiation<P>(P);
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Sha3TargetSum<P>(PhantomData<P>);
 
-impl<P: Sha3Digest> Instantiation<NUM_CHUNKS> for Sha3Instantiation<P> {
+impl<P> Clone for Sha3TargetSum<P> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<P> Copy for Sha3TargetSum<P> {}
+
+impl<P: Sha3Digest> Instantiation<NUM_CHUNKS> for Sha3TargetSum<P> {
     type Parameter = [u8; PARAM_LEN];
     type Hash = [u8; HASH_LEN];
     type Rho = [u8; RHO_LEN];
@@ -58,7 +68,7 @@ impl<P: Sha3Digest> Instantiation<NUM_CHUNKS> for Sha3Instantiation<P> {
         msg: [u8; MSG_LEN],
         parameter: Self::Parameter,
         rho: Self::Rho,
-    ) -> [u16; NUM_CHUNKS] {
+    ) -> Result<[u16; NUM_CHUNKS], String> {
         const I: usize = RHO_LEN + PARAM_LEN + TWEAK_MSG_LEN + MSG_LEN;
         let msg_hash = P::sha3_digest::<I, MSG_HASH_LEN>(concat_array![
             rho,
@@ -66,7 +76,11 @@ impl<P: Sha3Digest> Instantiation<NUM_CHUNKS> for Sha3Instantiation<P> {
             encode_tweak_msg(epoch),
             msg
         ]);
-        msg_hash_to_chunks(msg_hash)
+        let x = msg_hash_to_chunks(msg_hash);
+        if x.into_iter().sum::<u16>() != TARGET_SUM {
+            return Err("Unmatched target sum".to_string());
+        }
+        Ok(x)
     }
 
     fn chain(

@@ -22,7 +22,7 @@ use p3_poseidon2_util::air::generate_trace_rows_for_perm;
 
 const MAX_X_I: u32 = (1 << CHUNK_SIZE) - 1;
 
-pub fn trace_height(traces: &[VerificationTrace]) -> usize {
+pub const fn trace_height(traces: &[VerificationTrace]) -> usize {
     (traces.len() * TARGET_SUM as usize).next_power_of_two()
 }
 
@@ -90,7 +90,7 @@ pub fn generate_trace_rows_sig(
     chain_mid_indices.iter().tuple_windows().fold(
         chain_mid_indices[0] * MAX_X_I,
         |mut sum, (&i, &next_i)| {
-            let x_i = trace.x[i as usize] as u32;
+            let x_i = u32::from(trace.x[i as usize]);
             let i_diff = next_i - i;
             sum += x_i;
             zip(x_i..MAX_X_I, rows.by_ref()).for_each(|(chain_step, row)| {

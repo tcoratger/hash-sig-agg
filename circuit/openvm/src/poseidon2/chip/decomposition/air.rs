@@ -1,15 +1,15 @@
 use crate::{
     gadget::not,
     poseidon2::{
-        F,
         chip::{
-            Bus,
             decomposition::{
-                F_MS_LIMB, LIMB_BITS, NUM_LIMBS, NUM_MSG_HASH_LIMBS,
                 column::{DecompositionCols, NUM_DECOMPOSITION_COLS},
+                F_MS_LIMB, LIMB_BITS, NUM_LIMBS, NUM_MSG_HASH_LIMBS,
             },
+            Bus,
         },
         hash_sig::{CHUNK_SIZE, MSG_HASH_FE_LEN},
+        F,
     },
 };
 use core::{
@@ -85,7 +85,7 @@ where
 {
     cols.inds.eval_every_row(builder);
 
-    const { assert!(F_MS_LIMB == 0b1111000) };
+    const { assert!(F_MS_LIMB == 0b111_1000) };
     cols.value_ms_limb_bits
         .iter()
         .for_each(|cell| builder.assert_bool(*cell));
@@ -174,7 +174,7 @@ where
             .chain([cols.value_ms_limb::<AB>()])
             .chain(repeat(AB::Expr::ZERO)),
     )
-    .for_each(|(a, b)| builder.assert_eq(a, b))
+    .for_each(|(a, b)| builder.assert_eq(a, b));
 }
 
 #[inline]

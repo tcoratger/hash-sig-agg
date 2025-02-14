@@ -42,7 +42,7 @@ pub struct DecompositionChip<'a> {
 }
 
 impl<'a> DecompositionChip<'a> {
-    pub fn new(extra_capacity_bits: usize, traces: &'a [VerificationTrace]) -> Self {
+    pub const fn new(extra_capacity_bits: usize, traces: &'a [VerificationTrace]) -> Self {
         Self {
             extra_capacity_bits,
             traces,

@@ -40,13 +40,23 @@ pub struct DecompositionCols<T> {
 
 impl<T> DecompositionCols<T> {
     #[inline]
-    pub fn as_slice(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self as *const _ as *const T, NUM_DECOMPOSITION_COLS) }
+    pub const fn as_slice(&self) -> &[T] {
+        unsafe {
+            slice::from_raw_parts(
+                core::ptr::from_ref(self).cast::<T>(),
+                NUM_DECOMPOSITION_COLS,
+            )
+        }
     }
 
     #[inline]
     pub fn as_slice_mut(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self as *mut _ as *mut T, NUM_DECOMPOSITION_COLS) }
+        unsafe {
+            slice::from_raw_parts_mut(
+                core::ptr::from_mut(self).cast::<T>(),
+                NUM_DECOMPOSITION_COLS,
+            )
+        }
     }
 }
 
@@ -61,11 +71,7 @@ impl<T: Copy> DecompositionCols<T> {
     where
         T: Into<AB::Expr>,
     {
-        self.acc_inds()
-            .iter()
-            .copied()
-            .map(Into::into)
-            .sum::<AB::Expr>()
+        self.acc_inds().iter().copied().map(Into::into).sum()
     }
 
     #[inline]
@@ -86,7 +92,7 @@ impl<T: Copy> DecompositionCols<T> {
             .take(MSG_HASH_FE_LEN - 1)
             .copied()
             .map(Into::into)
-            .sum::<AB::Expr>()
+            .sum()
     }
 
     #[inline]
@@ -111,7 +117,7 @@ impl<T: Copy> DecompositionCols<T> {
             .iter()
             .copied()
             .map(Into::into)
-            .sum::<AB::Expr>()
+            .sum()
     }
 
     #[inline]
@@ -124,7 +130,7 @@ impl<T: Copy> DecompositionCols<T> {
             .take(NUM_MSG_HASH_LIMBS - 1)
             .copied()
             .map(Into::into)
-            .sum::<AB::Expr>()
+            .sum()
     }
 
     #[inline]

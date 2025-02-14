@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 const NUM_ROWS_PER_SIG: usize = MSG_HASH_FE_LEN + NUM_MSG_HASH_LIMBS;
 
-pub fn trace_height(traces: &[VerificationTrace]) -> usize {
+pub const fn trace_height(traces: &[VerificationTrace]) -> usize {
     (NUM_ROWS_PER_SIG * traces.len()).next_power_of_two()
 }
 
@@ -58,15 +58,15 @@ pub fn generate_trace_rows(
                     let mut acc_limbs = Default::default();
                     let (acc_rows, decomposition_rows) = rows.split_at_mut(MSG_HASH_FE_LEN);
                     acc_rows.iter_mut().enumerate().for_each(|(step, row)| {
-                        generate_trace_row_acc(row, sig_idx, &mut acc_limbs, msg_hash, step, &mult)
+                        generate_trace_row_acc(row, sig_idx, &mut acc_limbs, msg_hash, step, &mult);
                     });
                     decomposition_rows
                         .par_iter_mut()
                         .enumerate()
                         .for_each(|(step, row)| {
-                            generate_trace_row_decomposition(row, sig_idx, &acc_limbs, step)
+                            generate_trace_row_decomposition(row, sig_idx, &acc_limbs, step);
                         });
-                })
+                });
         },
         || generate_trace_rows_padding(padding_rows),
     );
@@ -96,8 +96,8 @@ pub fn generate_trace_row_acc(
         from_fn(|i| (value_limbs[NUM_LIMBS - 1] >> i) & 1 == 1);
     let value_ms_limb_auxs = {
         let aux0 = value_ms_limb_bits[6] & value_ms_limb_bits[5] & value_ms_limb_bits[4];
-        let aux1 = value_ms_limb_bits[3] & !value_ms_limb_bits[2] & !value_ms_limb_bits[1];
-        let aux2 = aux0 & aux1 & !value_ms_limb_bits[0];
+        let aux1 = value_ms_limb_bits[3] && !value_ms_limb_bits[2] && !value_ms_limb_bits[1];
+        let aux2 = aux0 & aux1 && !value_ms_limb_bits[0];
         [aux0, aux1, aux2]
     };
     let mut carries = [0; NUM_MSG_HASH_LIMBS - 1];

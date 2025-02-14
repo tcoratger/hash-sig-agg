@@ -47,13 +47,13 @@ pub struct ChainCols<T> {
 
 impl<T> ChainCols<T> {
     #[inline]
-    pub fn as_slice(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self as *const _ as *const T, NUM_CHAIN_COLS) }
+    pub const fn as_slice(&self) -> &[T] {
+        unsafe { slice::from_raw_parts(core::ptr::from_ref(self).cast::<T>(), NUM_CHAIN_COLS) }
     }
 
     #[inline]
     pub fn as_slice_mut(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self as *mut _ as *mut T, NUM_CHAIN_COLS) }
+        unsafe { slice::from_raw_parts_mut(core::ptr::from_mut(self).cast::<T>(), NUM_CHAIN_COLS) }
     }
 }
 

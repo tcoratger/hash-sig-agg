@@ -29,7 +29,7 @@ use p3_poseidon2_util::air::{generate_trace_rows_for_perm, outputs};
 
 const NUM_ROWS_PER_SIG: usize = 1 + SPONGE_PERM + LOG_LIFETIME;
 
-pub fn trace_height(traces: &[VerificationTrace]) -> usize {
+pub const fn trace_height(traces: &[VerificationTrace]) -> usize {
     (traces.len() * NUM_ROWS_PER_SIG).next_power_of_two()
 }
 
@@ -66,7 +66,7 @@ pub fn generate_trace_rows(
                     let (leaf_rows, path_rows) = rows.split_at_mut(SPONGE_PERM);
                     generate_trace_row_msg(msg_row, epoch, encoded_msg, trace, sig_idx);
                     let leaf_hash = generate_trace_rows_leaf(leaf_rows, epoch, sig_idx, trace);
-                    generate_trace_rows_path(path_rows, epoch, sig_idx, trace, leaf_hash)
+                    generate_trace_rows_path(path_rows, epoch, sig_idx, trace, leaf_hash);
                 });
         },
         || generate_trace_rows_padding(padding_rows),

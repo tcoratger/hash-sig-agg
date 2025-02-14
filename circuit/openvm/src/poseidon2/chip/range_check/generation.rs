@@ -1,10 +1,10 @@
 use crate::{
     poseidon2::{
-        F,
         chip::{
             decomposition::LIMB_BITS,
-            range_check::column::{NUM_RANGE_CHECK_COLS, RangeCheckCols},
+            range_check::column::{RangeCheckCols, NUM_RANGE_CHECK_COLS},
         },
+        F,
     },
     util::MaybeUninitField,
 };
@@ -14,7 +14,7 @@ use openvm_stark_backend::{
     p3_maybe_rayon::prelude::*,
 };
 
-pub fn trace_height() -> usize {
+pub const fn trace_height() -> usize {
     1 << LIMB_BITS
 }
 

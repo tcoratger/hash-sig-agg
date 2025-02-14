@@ -70,14 +70,14 @@ pub trait MaybeUninitFieldSlice<F: Field>: AsMut<[MaybeUninit<F>]> {
     fn fill_zero(&mut self) {
         self.as_mut()
             .iter_mut()
-            .for_each(MaybeUninitField::write_zero)
+            .for_each(MaybeUninitField::write_zero);
     }
 
     #[inline]
     fn fill_one(&mut self) {
         self.as_mut()
             .iter_mut()
-            .for_each(MaybeUninitField::write_one)
+            .for_each(MaybeUninitField::write_one);
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::instantiation::horizon::{
-    baby_bear::constant::{RC16, RC24, SBOX_DEGREE}, Poseidon2ExternalLayerHorizon, Poseidon2InternalLayerHorizon,
+    baby_bear::constant::{RC16, RC24, SBOX_DEGREE},
+    Poseidon2ExternalLayerHorizon, Poseidon2InternalLayerHorizon,
 };
 use p3_baby_bear::BabyBear;
 use p3_field::Field;

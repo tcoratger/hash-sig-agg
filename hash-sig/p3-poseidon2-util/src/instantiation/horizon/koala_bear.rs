@@ -1,5 +1,5 @@
 use crate::instantiation::horizon::{
-    koala_bear::constant::*, Poseidon2ExternalLayerHorizon, Poseidon2InternalLayerHorizon,
+    koala_bear::constant::{RC16, RC24, SBOX_DEGREE}, Poseidon2ExternalLayerHorizon, Poseidon2InternalLayerHorizon,
 };
 use p3_field::Field;
 use p3_koala_bear::KoalaBear;

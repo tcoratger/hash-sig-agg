@@ -160,8 +160,8 @@ pub fn msg_hash_to_chunks<F: PrimeField32>(hash: [F; MSG_HASH_FE_LEN]) -> [u16; 
     from_fn(|i| {
         bytes
             .get((i * CHUNK_SIZE) / 8)
-            .map(|byte| ((byte >> ((i * CHUNK_SIZE) % 8)) & MASK))
-            .unwrap_or(0) as u16
+            .map_or(0, |byte| ((byte >> ((i * CHUNK_SIZE) % 8)) & MASK))
+            .into()
     })
 }
 
@@ -171,12 +171,12 @@ pub fn encode_msg<F: PrimeField32>(msg: [u8; MSG_LEN]) -> [F; MSG_FE_LEN] {
 
 pub fn encode_tweak_chain<F: PrimeField32>(epoch: u32, i: u16, k: u16) -> [F; TWEAK_FE_LEN] {
     const SEP: u64 = 0x00;
-    decompose(((epoch as u64) << 40) | ((i as u64) << 24) | ((k as u64) << 8) | SEP)
+    decompose((u64::from(epoch) << 40) | (u64::from(i) << 24) | (u64::from(k) << 8) | SEP)
 }
 
 pub fn encode_tweak_merkle_tree<F: PrimeField32>(l: u32, i: u32) -> [F; TWEAK_FE_LEN] {
     const SEP: u64 = 0x01;
-    decompose(((l as u64) << 40) | ((i as u64) << 8) | SEP)
+    decompose((u64::from(l) << 40) | (u64::from(i) << 8) | SEP)
 }
 
 pub fn encode_tweak_msg<F: PrimeField32>(epoch: u32) -> [F; TWEAK_FE_LEN] {

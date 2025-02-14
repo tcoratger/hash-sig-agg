@@ -48,7 +48,7 @@ pub const RC24: RoundConstants<BabyBear, 24, HALF_FULL_ROUNDS, { partial_round::
 };
 
 impl MatDiagMinusOne<16> for BabyBear {
-    const MAT_DIAG_M_1: [BabyBear; 16] = BabyBear::new_array([
+    const MAT_DIAG_M_1: [Self; 16] = Self::new_array([
         0x0a632d94, 0x6db657b7, 0x56fbdc9e, 0x052b3d8a, 0x33745201, 0x5c03108c, 0x0beba37b,
         0x258c2e8b, 0x12029f39, 0x694909ce, 0x6d231724, 0x21c3b222, 0x3c0904a5, 0x01d6acda,
         0x27705c83, 0x5231c802,
@@ -56,7 +56,7 @@ impl MatDiagMinusOne<16> for BabyBear {
 }
 
 impl MatDiagMinusOne<24> for BabyBear {
-    const MAT_DIAG_M_1: [BabyBear; 24] = BabyBear::new_array([
+    const MAT_DIAG_M_1: [Self; 24] = Self::new_array([
         0x409133f0, 0x1667a8a1, 0x06a6c7b6, 0x6f53160e, 0x273b11d1, 0x03176c5d, 0x72f9bbf9,
         0x73ceba91, 0x5cdef81d, 0x01393285, 0x46daee06, 0x065d7ba6, 0x52d72d6f, 0x05dd05e0,
         0x3bab4b63, 0x6ada3842, 0x2fc5fbec, 0x770d61b0, 0x5715aae9, 0x03ef0e90, 0x75b6c770,

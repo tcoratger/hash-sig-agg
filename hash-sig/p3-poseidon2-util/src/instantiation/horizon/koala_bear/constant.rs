@@ -14,7 +14,7 @@ pub const fn partial_round<const WIDTH: usize>() -> usize {
 }
 
 #[rustfmt::skip]
-pub const RC16: RoundConstants<KoalaBear, 16, HALF_FULL_ROUNDS, { partial_round::<16>() }> = RoundConstants { 
+pub const RC16: RoundConstants<KoalaBear, 16, HALF_FULL_ROUNDS, { partial_round::<16>() }> = RoundConstants {
     beginning_full_round_constants: KoalaBear::new_2d_array([
         [0x7ee56a48, 0x11367045, 0x12e41941, 0x7ebbc12b, 0x1970b7d5, 0x662b60e8, 0x3e4990c6, 0x679f91f5, 0x350813bb, 0x00874ad4, 0x28a0081a, 0x18fa5872, 0x5f25b071, 0x5e5d5998, 0x5e6fd3e7, 0x5b2e2660],
         [0x6f1837bf, 0x3fe6182b, 0x1edd7ac5, 0x57470d00, 0x43d486d5, 0x1982c70f, 0x0ea53af9, 0x61d6165b, 0x51639c00, 0x2dec352c, 0x2950e531, 0x2d2cb947, 0x08256cef, 0x1a0109f6, 0x1f51faf3, 0x5cef1c62],
@@ -27,11 +27,11 @@ pub const RC16: RoundConstants<KoalaBear, 16, HALF_FULL_ROUNDS, { partial_round:
         [0x3bdbf191, 0x088c84a3, 0x68256c9b, 0x3c90bbc6, 0x6846166a, 0x03f4238d, 0x463335fb, 0x5e3d3551, 0x6e59ae6f, 0x32d06cc0, 0x596293f3, 0x6c87edb2, 0x08fc60b5, 0x34bcca80, 0x24f007f3, 0x62731c6f],
         [0x1e1db6c6, 0x0ca409bb, 0x585c1e78, 0x56e94edc, 0x16d22734, 0x18e11467, 0x7b2c3730, 0x770075e4, 0x35d1b18c, 0x22be3db5, 0x4fb1fbb7, 0x477cb3ed, 0x7d5311c6, 0x5b62ae7d, 0x559c5fa8, 0x77f15048],
         [0x3211570b, 0x490fef6a, 0x77ec311f, 0x2247171b, 0x4e0ac711, 0x2edf69c9, 0x3b5a8850, 0x65809421, 0x5619b4aa, 0x362019a7, 0x6bf9d4ed, 0x5b413dff, 0x617e181e, 0x5e7ab57b, 0x33ad7833, 0x3466c7ca],
-    ]),  
+    ]),
 };
 
 #[rustfmt::skip]
-pub const RC24: RoundConstants<KoalaBear, 24, HALF_FULL_ROUNDS, { partial_round::<24>() }> = RoundConstants { 
+pub const RC24: RoundConstants<KoalaBear, 24, HALF_FULL_ROUNDS, { partial_round::<24>() }> = RoundConstants {
     beginning_full_round_constants: KoalaBear::new_2d_array([
         [0x1d0939dc, 0x6d050f8d, 0x628058ad, 0x2681385d, 0x3e3c62be, 0x032cfad8, 0x5a91ba3c, 0x015a56e6, 0x696b889c, 0x0dbcd780, 0x5881b5c9, 0x2a076f2e, 0x55393055, 0x6513a085, 0x547ac78f, 0x4281c5b8, 0x3e7a3f6c, 0x34562c19, 0x2c04e679, 0x0ed78234, 0x5f7a1aa9, 0x0177640e, 0x0ea4f8d1, 0x15be7692],
         [0x6eafdd62, 0x71a572c6, 0x72416f0a, 0x31ce1ad3, 0x2136a0cf, 0x1507c0eb, 0x1eb6e07a, 0x3a0ccf7b, 0x38e4bf31, 0x44128286, 0x6b05e976, 0x244a9b92, 0x6e4b32a8, 0x78ee2496, 0x4761115b, 0x3d3a7077, 0x75d3c670, 0x396a2475, 0x26dd00b4, 0x7df50f59, 0x0cb922df, 0x0568b190, 0x5bd3fcd6, 0x1351f58e],
@@ -48,7 +48,7 @@ pub const RC24: RoundConstants<KoalaBear, 24, HALF_FULL_ROUNDS, { partial_round:
 };
 
 impl MatDiagMinusOne<16> for KoalaBear {
-    const MAT_DIAG_M_1: [KoalaBear; 16] = KoalaBear::new_array([
+    const MAT_DIAG_M_1: [Self; 16] = Self::new_array([
         0x1c9a12f1, 0x3f6fd40c, 0x0e1d4ec3, 0x1361c64c, 0x09a8f46f, 0x03d23a3f, 0x109ad28f,
         0x28c2fb87, 0x3b6498f1, 0x74d8be56, 0x6a4277d1, 0x18c2b3d3, 0x6252c30b, 0x07cc255f,
         0x209fe15a, 0x52a55fab,
@@ -56,7 +56,7 @@ impl MatDiagMinusOne<16> for KoalaBear {
 }
 
 impl MatDiagMinusOne<24> for KoalaBear {
-    const MAT_DIAG_M_1: [KoalaBear; 24] = KoalaBear::new_array([
+    const MAT_DIAG_M_1: [Self; 24] = Self::new_array([
         0x731b17fc, 0x201359bc, 0x22bf6498, 0x610f1a28, 0x3c73aa44, 0x6a092598, 0x1c7cb702,
         0x79533458, 0x7ef62d85, 0x5ab925aa, 0x67722ab0, 0x33ca4cfe, 0x007f7dcd, 0x0eeac41d,
         0x4724bea6, 0x45eaf64e, 0x21a6c90e, 0x094b414f, 0x0d94262f, 0x18712c2f, 0x3a470337,

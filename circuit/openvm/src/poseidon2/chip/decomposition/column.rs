@@ -1,7 +1,10 @@
 use crate::{
     gadget::{cycle_bits::CycleBits, is_equal::IsEqualCols, is_zero::IsZeroCols},
     poseidon2::{
-        chip::decomposition::{F_MS_LIMB_BITS, LIMB_BITS, NUM_LIMBS, NUM_MSG_HASH_LIMBS},
+        chip::{
+            decomposition::{F_MS_LIMB_BITS, LIMB_BITS, NUM_LIMBS, NUM_MSG_HASH_LIMBS},
+            AlignBorrow,
+        },
         hash_sig::MSG_HASH_FE_LEN,
     },
 };
@@ -145,24 +148,20 @@ impl<T: Copy> DecompositionCols<T> {
     }
 }
 
+impl<T> AlignBorrow<T> for DecompositionCols<T> {
+    const NUM_COLS: usize = NUM_DECOMPOSITION_COLS;
+}
+
 impl<T> Borrow<DecompositionCols<T>> for [T] {
+    #[inline]
     fn borrow(&self) -> &DecompositionCols<T> {
-        debug_assert_eq!(self.len(), NUM_DECOMPOSITION_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to::<DecompositionCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &shorts[0]
+        DecompositionCols::align_borrow(self)
     }
 }
 
 impl<T> BorrowMut<DecompositionCols<T>> for [T] {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut DecompositionCols<T> {
-        debug_assert_eq!(self.len(), NUM_DECOMPOSITION_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to_mut::<DecompositionCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &mut shorts[0]
+        DecompositionCols::align_borrow_mut(self)
     }
 }

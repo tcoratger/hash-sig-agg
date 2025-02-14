@@ -1,7 +1,10 @@
 use crate::{
     gadget::{cycle_int::CycleInt, not},
     poseidon2::{
-        chip::merkle_tree::poseidon2::{PARTIAL_ROUNDS, WIDTH},
+        chip::{
+            merkle_tree::poseidon2::{PARTIAL_ROUNDS, WIDTH},
+            AlignBorrow,
+        },
         hash_sig::{
             HASH_FE_LEN, LOG_LIFETIME, MSG_HASH_FE_LEN, PARAM_FE_LEN, RHO_FE_LEN, SPONGE_PERM,
             SPONGE_RATE, TWEAK_FE_LEN,
@@ -146,24 +149,20 @@ impl<T: Copy> MerkleTreeCols<T> {
     }
 }
 
+impl<T> AlignBorrow<T> for MerkleTreeCols<T> {
+    const NUM_COLS: usize = NUM_MERKLE_TREE_COLS;
+}
+
 impl<T> Borrow<MerkleTreeCols<T>> for [T] {
+    #[inline]
     fn borrow(&self) -> &MerkleTreeCols<T> {
-        debug_assert_eq!(self.len(), NUM_MERKLE_TREE_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to::<MerkleTreeCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &shorts[0]
+        MerkleTreeCols::align_borrow(self)
     }
 }
 
 impl<T> BorrowMut<MerkleTreeCols<T>> for [T] {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut MerkleTreeCols<T> {
-        debug_assert_eq!(self.len(), NUM_MERKLE_TREE_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to_mut::<MerkleTreeCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &mut shorts[0]
+        MerkleTreeCols::align_borrow_mut(self)
     }
 }

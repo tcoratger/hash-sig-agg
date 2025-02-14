@@ -1,6 +1,9 @@
 use crate::{
     gadget::lower_rows_filter::LowerRowsFilterCols,
-    poseidon2::hash_sig::{HASH_FE_LEN, MSG_HASH_FE_LEN, PARAM_FE_LEN},
+    poseidon2::{
+        chip::AlignBorrow,
+        hash_sig::{HASH_FE_LEN, MSG_HASH_FE_LEN, PARAM_FE_LEN},
+    },
 };
 use core::borrow::{Borrow, BorrowMut};
 
@@ -15,24 +18,20 @@ pub struct MainCols<T> {
     pub msg_hash: [T; MSG_HASH_FE_LEN],
 }
 
+impl<T> AlignBorrow<T> for MainCols<T> {
+    const NUM_COLS: usize = NUM_MAIN_COLS;
+}
+
 impl<T> Borrow<MainCols<T>> for [T] {
+    #[inline]
     fn borrow(&self) -> &MainCols<T> {
-        debug_assert_eq!(self.len(), NUM_MAIN_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to::<MainCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &shorts[0]
+        MainCols::align_borrow(self)
     }
 }
 
 impl<T> BorrowMut<MainCols<T>> for [T] {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut MainCols<T> {
-        debug_assert_eq!(self.len(), NUM_MAIN_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to_mut::<MainCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &mut shorts[0]
+        MainCols::align_borrow_mut(self)
     }
 }

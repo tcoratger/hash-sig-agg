@@ -39,21 +39,15 @@ where
         let next: &MainCols<AB::Var> = (*next).borrow();
 
         // When every rows
-        eval_every_row(builder, local);
+        local.is_active.eval_every_row(builder);
 
         // When first row
-        {
-            let mut builder = builder.when_first_row();
-
-            builder.assert_one(*local.is_active);
-        }
+        builder.when_first_row().assert_one(*local.is_active);
 
         // When transition
-        {
-            let mut builder = builder.when_transition();
-
-            eval_transition(&mut builder, local, next);
-        }
+        local
+            .is_active
+            .eval_transition(&mut builder.when_transition(), &next.is_active);
 
         // Interaction
         send_parameter(builder, local);
@@ -63,29 +57,13 @@ where
 }
 
 #[inline]
-fn eval_every_row<AB>(builder: &mut AB, cols: &MainCols<AB::Var>)
-where
-    AB: AirBuilder<F = F>,
-{
-    cols.is_active.eval_every_row(builder);
-}
-
-#[inline]
-fn eval_transition<AB>(builder: &mut AB, local: &MainCols<AB::Var>, next: &MainCols<AB::Var>)
-where
-    AB: AirBuilder<F = F>,
-{
-    local.is_active.eval_transition(builder, &next.is_active);
-}
-
-#[inline]
 fn send_parameter<AB>(builder: &mut AB, cols: &MainCols<AB::Var>)
 where
     AB: InteractionBuilder<F = F>,
 {
     builder.push_send(
         Bus::Parameter as usize,
-        iter::empty().chain([cols.sig_idx]).chain(cols.parameter),
+        iter::once(cols.sig_idx).chain(cols.parameter),
         *cols.is_active,
     );
 }
@@ -97,8 +75,7 @@ where
 {
     builder.push_send(
         Bus::MsgHash as usize,
-        iter::empty()
-            .chain([cols.sig_idx])
+        iter::once(cols.sig_idx)
             .chain(cols.parameter)
             .chain(cols.merkle_root)
             .chain(cols.msg_hash),
@@ -113,9 +90,7 @@ where
 {
     builder.push_send(
         Bus::Decomposition as usize,
-        iter::empty()
-            .chain([cols.sig_idx])
-            .chain(cols.msg_hash.into_iter().rev()),
+        iter::once(cols.sig_idx).chain(cols.msg_hash.into_iter().rev()),
         *cols.is_active,
     );
 }

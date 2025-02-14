@@ -1,5 +1,7 @@
 use core::borrow::{Borrow, BorrowMut};
 
+use crate::poseidon2::chip::AlignBorrow;
+
 pub const NUM_RANGE_CHECK_COLS: usize = size_of::<RangeCheckCols<u8>>();
 
 #[repr(C)]
@@ -8,24 +10,20 @@ pub struct RangeCheckCols<T> {
     pub mult: T,
 }
 
+impl<T> AlignBorrow<T> for RangeCheckCols<T> {
+    const NUM_COLS: usize = NUM_RANGE_CHECK_COLS;
+}
+
 impl<T> Borrow<RangeCheckCols<T>> for [T] {
+    #[inline]
     fn borrow(&self) -> &RangeCheckCols<T> {
-        debug_assert_eq!(self.len(), NUM_RANGE_CHECK_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to::<RangeCheckCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &shorts[0]
+        RangeCheckCols::align_borrow(self)
     }
 }
 
 impl<T> BorrowMut<RangeCheckCols<T>> for [T] {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut RangeCheckCols<T> {
-        debug_assert_eq!(self.len(), NUM_RANGE_CHECK_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to_mut::<RangeCheckCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &mut shorts[0]
+        RangeCheckCols::align_borrow_mut(self)
     }
 }

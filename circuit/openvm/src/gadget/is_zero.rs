@@ -11,8 +11,13 @@ pub struct IsZeroCols<T> {
 impl<T: Field> IsZeroCols<MaybeUninit<T>> {
     #[inline]
     pub fn populate(&mut self, input: T) {
-        self.output.write(T::from_bool(input.is_zero()));
-        self.inv.write(input.try_inverse().unwrap_or(T::ZERO));
+        let is_zero = input.is_zero();
+        self.output.write(T::from_bool(is_zero));
+        if is_zero {
+            self.inv.write(T::ZERO);
+        } else {
+            self.inv.write(input.try_inverse().unwrap());
+        }
     }
 }
 

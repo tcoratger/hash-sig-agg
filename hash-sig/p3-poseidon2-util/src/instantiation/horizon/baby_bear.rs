@@ -1,5 +1,6 @@
 use crate::instantiation::horizon::{
-    baby_bear::constant::*, Poseidon2ExternalLayerHorizon, Poseidon2InternalLayerHorizon,
+    baby_bear::constant::{RC16, RC24, SBOX_DEGREE},
+    Poseidon2ExternalLayerHorizon, Poseidon2InternalLayerHorizon,
 };
 use p3_baby_bear::BabyBear;
 use p3_field::Field;
@@ -84,7 +85,7 @@ mod test {
                 let post: [FpBabyBear; WIDTH] = reference.permutation(&pre).try_into().unwrap();
                 let mut state = pre.map(horizon_to_p3::<BabyBear>);
                 poseidon2.permute_mut(&mut state);
-                assert_eq!(state, post.map(horizon_to_p3))
+                assert_eq!(state, post.map(horizon_to_p3));
             }
         }
 

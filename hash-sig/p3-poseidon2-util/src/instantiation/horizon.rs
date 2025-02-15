@@ -66,10 +66,10 @@ impl<F, FA: FieldAlgebra<F = F>, const WIDTH: usize, const SBOX_DEGREE: u64>
     }
 }
 
-impl<F: Sync + Copy, FA, const WIDTH: usize, const SBOX_DEGREE: u64>
-    InternalLayer<FA, WIDTH, SBOX_DEGREE> for Poseidon2InternalLayerHorizon<F, WIDTH, SBOX_DEGREE>
+impl<F, FA, const WIDTH: usize, const SBOX_DEGREE: u64> InternalLayer<FA, WIDTH, SBOX_DEGREE>
+    for Poseidon2InternalLayerHorizon<F, WIDTH, SBOX_DEGREE>
 where
-    F: MatDiagMinusOne<WIDTH>,
+    F: MatDiagMinusOne<WIDTH> + Sync + Copy,
     FA: FieldAlgebra<F = F> + AddAssign<F> + Mul<F, Output = FA>,
 {
     fn permute_state(&self, state: &mut [FA; WIDTH]) {
@@ -78,9 +78,9 @@ where
             state[0] = state[0].exp_const_u64::<SBOX_DEGREE>();
             let sum = state.iter().cloned().sum::<FA>();
             zip(&mut *state, F::MAT_DIAG_M_1).for_each(|(state, mat_diag_m_1)| {
-                *state = state.clone() * mat_diag_m_1 + sum.clone()
+                *state = state.clone() * mat_diag_m_1 + sum.clone();
             });
-        })
+        });
     }
 }
 
@@ -99,6 +99,6 @@ where
     }
 
     fn external_linear_layer(state: &mut [FA; WIDTH]) {
-        mds_light_permutation(state, &HLMDSMat4)
+        mds_light_permutation(state, &HLMDSMat4);
     }
 }

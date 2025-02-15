@@ -3,6 +3,9 @@ name = "hash-sig-verifier"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 num-bigint = { workspace = true }
 p3-baby-bear = { workspace = true }

@@ -144,9 +144,6 @@ fn generate_sbox<F: PrimeField, const DEGREE: u64, const REGISTERS: usize>(
             sbox.0[1].write(x9);
             x9 * x2
         }
-        _ => panic!(
-            "Unexpected (DEGREE, REGISTERS) of ({}, {})",
-            DEGREE, REGISTERS
-        ),
+        _ => panic!("Unexpected (DEGREE, REGISTERS) of ({DEGREE}, {REGISTERS})"),
     }
 }

@@ -1,9 +1,12 @@
 use crate::{
     gadget::{cycle_int::CycleInt, is_zero::IsZeroCols, lower_rows_filter::LowerRowsFilterCols},
     poseidon2::{
-        chip::chain::{
-            poseidon2::{PARTIAL_ROUNDS, WIDTH},
-            MAX_CHAIN_STEP_DIFF_BITS,
+        chip::{
+            chain::{
+                poseidon2::{PARTIAL_ROUNDS, WIDTH},
+                MAX_CHAIN_STEP_DIFF_BITS,
+            },
+            AlignBorrow,
         },
         hash_sig::{CHUNK_SIZE, HASH_FE_LEN, PARAM_FE_LEN, TARGET_SUM, TWEAK_FE_LEN},
         HALF_FULL_ROUNDS, SBOX_DEGREE, SBOX_REGISTERS,
@@ -128,24 +131,20 @@ impl<T: Copy> ChainCols<T> {
     }
 }
 
+impl<T> AlignBorrow<T> for ChainCols<T> {
+    const NUM_COLS: usize = NUM_CHAIN_COLS;
+}
+
 impl<T> Borrow<ChainCols<T>> for [T] {
+    #[inline]
     fn borrow(&self) -> &ChainCols<T> {
-        debug_assert_eq!(self.len(), NUM_CHAIN_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to::<ChainCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &shorts[0]
+        ChainCols::align_borrow(self)
     }
 }
 
 impl<T> BorrowMut<ChainCols<T>> for [T] {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut ChainCols<T> {
-        debug_assert_eq!(self.len(), NUM_CHAIN_COLS);
-        let (prefix, shorts, suffix) = unsafe { self.align_to_mut::<ChainCols<T>>() };
-        debug_assert!(prefix.is_empty(), "Alignment should match");
-        debug_assert!(suffix.is_empty(), "Alignment should match");
-        debug_assert_eq!(shorts.len(), 1);
-        &mut shorts[0]
+        ChainCols::align_borrow_mut(self)
     }
 }

@@ -23,18 +23,19 @@ use p3_field::FieldAlgebra;
 use p3_matrix::Matrix;
 use p3_poseidon2_air::{num_cols, Poseidon2Air};
 
+/// Alias for `Poseidon2Air` specialized with chain-related parameters.
+type Poseidon2AirChain = Poseidon2Air<
+    F,
+    Poseidon2LinearLayers<WIDTH>,
+    WIDTH,
+    SBOX_DEGREE,
+    SBOX_REGISTERS,
+    HALF_FULL_ROUNDS,
+    PARTIAL_ROUNDS,
+>;
+
 #[derive(Debug)]
-pub struct ChainAir(
-    Poseidon2Air<
-        F,
-        Poseidon2LinearLayers<WIDTH>,
-        WIDTH,
-        SBOX_DEGREE,
-        SBOX_REGISTERS,
-        HALF_FULL_ROUNDS,
-        PARTIAL_ROUNDS,
-    >,
-);
+pub struct ChainAir(Poseidon2AirChain);
 
 impl Default for ChainAir {
     fn default() -> Self {
@@ -58,22 +59,18 @@ where
     AB::Expr: FieldAlgebra<F = F>,
 {
     fn eval(&self, builder: &mut AB) {
-        self.0.eval(&mut SubAirBuilder::<
-            _,
-            Poseidon2Air<
-                F,
-                Poseidon2LinearLayers<WIDTH>,
-                WIDTH,
-                SBOX_DEGREE,
-                SBOX_REGISTERS,
-                HALF_FULL_ROUNDS,
-                PARTIAL_ROUNDS,
-            >,
-            _,
-        >::new(
-            builder,
-            0..num_cols::<WIDTH, SBOX_DEGREE, SBOX_REGISTERS, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>(),
-        ));
+        self.0
+            .eval(&mut SubAirBuilder::<_, Poseidon2AirChain, _>::new(
+                builder,
+                0
+                    ..num_cols::<
+                        WIDTH,
+                        SBOX_DEGREE,
+                        SBOX_REGISTERS,
+                        HALF_FULL_ROUNDS,
+                        PARTIAL_ROUNDS,
+                    >(),
+            ));
 
         // TODO:
         // 1. Make sure `encoded_tweak_chain` is correct.

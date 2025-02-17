@@ -12,11 +12,9 @@ use crate::{
         hash_sig::{CHUNK_SIZE, MSG_HASH_FE_LEN},
         F,
     },
+    util::zip,
 };
-use core::{
-    borrow::Borrow,
-    iter::{self, repeat, zip},
-};
+use core::{borrow::Borrow, iter};
 use openvm_stark_backend::{
     interaction::InteractionBuilder,
     rap::{BaseAirWithPublicValues, PartitionedBaseAir},
@@ -160,14 +158,14 @@ fn eval_acc_first_row<AB>(builder: &mut AB, cols: &DecompositionCols<AB::Var>)
 where
     AB: AirBuilder<F = F>,
 {
-    zip(
-        cols.acc_limbs,
+    zip!(
+        cols.acc_limbs.into_iter(),
         cols.value_ls_limbs
             .iter()
             .copied()
             .map(Into::into)
             .chain([cols.value_ms_limb::<AB>()])
-            .chain(repeat(AB::Expr::ZERO)),
+            .chain([AB::Expr::ZERO; NUM_MSG_HASH_LIMBS - NUM_LIMBS]),
     )
     .for_each(|(a, b)| builder.assert_eq(a, b));
 }
@@ -231,7 +229,7 @@ fn eval_acc_last_row<AB>(
 {
     let mut builder = builder.when(local.is_acc_last_row::<AB>());
 
-    zip(next.acc_limbs, local.acc_limbs).for_each(|(a, b)| builder.assert_eq(a, b));
+    zip!(next.acc_limbs, local.acc_limbs).for_each(|(a, b)| builder.assert_eq(a, b));
     eval_acc_first_row(&mut builder.when(next.is_acc_first_row::<AB>()), next);
 }
 
@@ -243,7 +241,7 @@ where
     let mut builder = builder.when(local.is_decomposition::<AB>());
 
     builder.assert_eq(
-        zip(local.acc_limbs, local.decomposition_inds())
+        zip!(local.acc_limbs, local.decomposition_inds())
             .map(|(limb, ind)| limb * *ind)
             .sum::<AB::Expr>(),
         local
@@ -263,7 +261,7 @@ fn eval_decomposition_transition<AB>(
 {
     let mut builder = builder.when(local.is_decomposition_transition::<AB>());
 
-    zip(next.acc_limbs, local.acc_limbs).for_each(|(a, b)| builder.assert_eq(a, b));
+    zip!(next.acc_limbs, local.acc_limbs).for_each(|(a, b)| builder.assert_eq(a, b));
 }
 
 #[inline]

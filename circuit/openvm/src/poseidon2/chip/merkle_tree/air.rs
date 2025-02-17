@@ -369,8 +369,7 @@ where
 {
     builder.push_receive(
         Bus::MsgHash as usize,
-        iter::empty()
-            .chain([local.sig_idx.into()])
+        iter::once(local.sig_idx.into())
             .chain(local.msg_hash_parameter().map(Into::into))
             .chain(local.root.map(Into::into))
             .chain(local.msg_hash::<AB>()),
@@ -388,46 +387,46 @@ fn receive_merkle_tree<AB>(
 {
     builder.push_receive(
         Bus::MerkleLeaf as usize,
-        iter::empty()
-            .chain([local.sig_idx.into(), local.leaf_chunk_idx.into()])
+        [local.sig_idx.into(), local.leaf_chunk_idx.into()]
+            .into_iter()
             .chain(local.sponge_block[..HASH_FE_LEN].iter().copied().map_into()),
         local.is_receive_merkle_tree[0] * local.leaf_chunk_start_ind[0].into(),
     );
     builder.push_receive(
         Bus::MerkleLeaf as usize,
-        iter::empty()
-            .chain([
-                local.sig_idx.into(),
-                local.leaf_chunk_idx.into() + local.leaf_chunk_start_ind[0].into(),
-            ])
-            .chain((0..HASH_FE_LEN).map(|i| {
-                (1..)
-                    .take(HASH_FE_LEN)
-                    .map(|j| local.leaf_chunk_start_ind[j] * local.sponge_block[j + i])
-                    .sum()
-            })),
+        [
+            local.sig_idx.into(),
+            local.leaf_chunk_idx.into() + local.leaf_chunk_start_ind[0].into(),
+        ]
+        .into_iter()
+        .chain((0..HASH_FE_LEN).map(|i| {
+            (1..)
+                .take(HASH_FE_LEN)
+                .map(|j| local.leaf_chunk_start_ind[j] * local.sponge_block[j + i])
+                .sum()
+        })),
         local.is_receive_merkle_tree[1],
     );
     builder.push_receive(
         Bus::MerkleLeaf as usize,
-        iter::empty()
-            .chain([
-                local.sig_idx.into(),
-                local.leaf_chunk_idx.into() + local.leaf_chunk_start_ind[0].into() + AB::Expr::ONE,
-            ])
-            .chain((0..HASH_FE_LEN).map(|i| {
-                (1 + HASH_FE_LEN..)
-                    .take(HASH_FE_LEN)
-                    .map(|j| {
-                        local.leaf_chunk_start_ind[j]
-                            * (if j + i < SPONGE_RATE {
-                                local.sponge_block[j + i]
-                            } else {
-                                next.sponge_block[j + i - SPONGE_RATE]
-                            })
-                    })
-                    .sum()
-            })),
+        [
+            local.sig_idx.into(),
+            local.leaf_chunk_idx.into() + local.leaf_chunk_start_ind[0].into() + AB::Expr::ONE,
+        ]
+        .into_iter()
+        .chain((0..HASH_FE_LEN).map(|i| {
+            (1 + HASH_FE_LEN..)
+                .take(HASH_FE_LEN)
+                .map(|j| {
+                    local.leaf_chunk_start_ind[j]
+                        * (if j + i < SPONGE_RATE {
+                            local.sponge_block[j + i]
+                        } else {
+                            next.sponge_block[j + i - SPONGE_RATE]
+                        })
+                })
+                .sum()
+        })),
         local.is_receive_merkle_tree[2] * not(local.is_last_sponge_step::<AB>()),
     );
 }

@@ -81,7 +81,7 @@ fn generate_trace_row_msg(
     row.is_merkle_leaf_transition.write_zero();
     row.is_merkle_path.write_zero();
     row.is_merkle_path_transition.write_zero();
-    row.is_recevie_merkle_tree.fill_zero();
+    row.is_receive_merkle_tree.fill_zero();
     row.root.fill_from_slice(&trace.pk.merkle_root);
     row.sponge_step.populate(0);
     row.sponge_block.fill_zero();
@@ -129,11 +129,11 @@ fn generate_trace_rows_leaf(
             row.is_merkle_leaf_transition
                 .write_bool(sponge_step != SPONGE_PERM - 1);
             if (sponge_step * SPONGE_RATE) % HASH_FE_LEN == 0 {
-                row.is_recevie_merkle_tree
+                row.is_receive_merkle_tree
                     .fill_from_iter(is_receive_merkle_tree.by_ref().take(3).map(F::from_bool));
             } else {
-                row.is_recevie_merkle_tree[0].write_zero();
-                row.is_recevie_merkle_tree[1..]
+                row.is_receive_merkle_tree[0].write_zero();
+                row.is_receive_merkle_tree[1..]
                     .fill_from_iter(is_receive_merkle_tree.by_ref().take(2).map(F::from_bool));
             }
             row.is_merkle_path.write_zero();
@@ -185,7 +185,7 @@ fn generate_trace_rows_path(
             row.is_merkle_path.write_one();
             row.is_merkle_path_transition
                 .write_bool(level != LOG_LIFETIME - 1);
-            row.is_recevie_merkle_tree.fill_zero();
+            row.is_receive_merkle_tree.fill_zero();
             row.root.fill_from_slice(&trace.pk.merkle_root);
             row.sponge_step.populate(0);
             row.sponge_block.fill_zero();
@@ -240,7 +240,7 @@ pub fn generate_trace_row_padding(row: &mut MerkleTreeCols<MaybeUninit<F>>) {
     row.is_merkle_leaf_transition.write_zero();
     row.is_merkle_path.write_zero();
     row.is_merkle_path_transition.write_zero();
-    row.is_recevie_merkle_tree.fill_zero();
+    row.is_receive_merkle_tree.fill_zero();
     row.root.fill_zero();
     row.sponge_step.populate(0);
     row.sponge_block.fill_zero();

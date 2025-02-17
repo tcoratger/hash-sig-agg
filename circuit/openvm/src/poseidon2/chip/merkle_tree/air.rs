@@ -153,7 +153,7 @@ where
         cols.is_merkle_path_transition,
         cols.is_merkle_path * not(cols.is_last_level::<AB>()),
     );
-    cols.is_recevie_merkle_tree.map(|v| builder.assert_bool(v));
+    cols.is_receive_merkle_tree.map(|v| builder.assert_bool(v));
     builder
         .assert_bool(cols.is_msg.into() + cols.is_merkle_leaf.into() + cols.is_merkle_path.into());
     cols.sponge_step.eval_every_row(builder);
@@ -361,7 +361,7 @@ fn eval_padding_transition<AB>(
     let mut builder = builder.when(local.is_padding::<AB>());
 
     builder.assert_zero(local.sig_idx);
-    local.is_recevie_merkle_tree.map(|v| builder.assert_zero(v));
+    local.is_receive_merkle_tree.map(|v| builder.assert_zero(v));
     builder.assert_one(next.is_padding::<AB>());
 }
 
@@ -394,7 +394,7 @@ fn receive_merkle_tree<AB>(
         iter::empty()
             .chain([local.sig_idx.into(), local.leaf_chunk_idx.into()])
             .chain(local.sponge_block[..HASH_FE_LEN].iter().copied().map_into()),
-        local.is_recevie_merkle_tree[0] * local.leaf_chunk_start_ind[0].into(),
+        local.is_receive_merkle_tree[0] * local.leaf_chunk_start_ind[0].into(),
     );
     builder.push_receive(
         Bus::MerkleLeaf as usize,
@@ -409,7 +409,7 @@ fn receive_merkle_tree<AB>(
                     .map(|j| local.leaf_chunk_start_ind[j] * local.sponge_block[j + i])
                     .sum()
             })),
-        local.is_recevie_merkle_tree[1],
+        local.is_receive_merkle_tree[1],
     );
     builder.push_receive(
         Bus::MerkleLeaf as usize,
@@ -431,6 +431,6 @@ fn receive_merkle_tree<AB>(
                     })
                     .sum()
             })),
-        local.is_recevie_merkle_tree[2] * not(local.is_last_sponge_step::<AB>()),
+        local.is_receive_merkle_tree[2] * not(local.is_last_sponge_step::<AB>()),
     );
 }

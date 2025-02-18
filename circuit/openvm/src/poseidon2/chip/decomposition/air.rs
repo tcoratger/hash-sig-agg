@@ -344,7 +344,7 @@ where
 {
     builder.push_receive(
         Bus::Decomposition as usize,
-        iter::empty().chain([cols.sig_idx]).chain(cols.values),
+        iter::once(cols.sig_idx).chain(cols.values),
         cols.is_acc_last_row::<AB>(),
     );
 }

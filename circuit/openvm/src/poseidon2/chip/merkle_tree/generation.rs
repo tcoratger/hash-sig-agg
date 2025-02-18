@@ -114,8 +114,7 @@ fn generate_trace_rows_leaf(
             .map(|i| SPONGE_CAPACITY_VALUES[i])
             .unwrap_or_default()
     });
-    let mut is_receive_merkle_tree = iter::empty()
-        .chain([false])
+    let mut is_receive_merkle_tree = iter::once(false)
         .chain(trace.x.iter().map(|x_i| *x_i != (1 << CHUNK_SIZE) - 1))
         .chain([false]);
     let output = zip!(rows, trace.merkle_tree_leaf(epoch).chunks(SPONGE_RATE))

@@ -218,9 +218,7 @@ where
 {
     builder.push_receive(
         Bus::Parameter as usize,
-        iter::empty()
-            .chain([local.sig_idx])
-            .chain(local.parameter()),
+        iter::once(local.sig_idx).chain(local.parameter()),
         (*local.is_active).into() * local.is_last_sig_row::<AB>(),
     );
 }
@@ -248,12 +246,12 @@ where
 {
     builder.push_send(
         Bus::MerkleLeaf as usize,
-        iter::empty()
-            .chain([
-                local.sig_idx.into(),
-                (*local.chain_idx).into() + AB::Expr::ONE,
-            ])
-            .chain(local.compression_output::<AB>()),
+        [
+            local.sig_idx.into(),
+            (*local.chain_idx).into() + AB::Expr::ONE,
+        ]
+        .into_iter()
+        .chain(local.compression_output::<AB>()),
         *local.is_active * local.is_last_chain_step::<AB>(),
     );
 }

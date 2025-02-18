@@ -36,7 +36,7 @@ pub struct MerkleTreeCols<T> {
     pub is_merkle_leaf_transition: T,
     pub is_merkle_path: T,
     pub is_merkle_path_transition: T,
-    pub is_recevie_merkle_tree: [T; 3],
+    pub is_receive_merkle_tree: [T; 3],
     pub root: [T; HASH_FE_LEN],
     pub sponge_step: CycleInt<T, SPONGE_PERM>,
     pub sponge_block: [T; SPONGE_RATE],

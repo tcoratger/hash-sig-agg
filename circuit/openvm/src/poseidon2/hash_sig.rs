@@ -110,7 +110,7 @@ pub fn chain_and_input(
     })
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 pub mod test {
     use crate::poseidon2::hash_sig::VerificationInput;
 

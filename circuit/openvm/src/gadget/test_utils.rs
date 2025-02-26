@@ -3,7 +3,7 @@ use p3_baby_bear::BabyBear;
 use p3_field::FieldAlgebra;
 use p3_matrix::dense::RowMajorMatrix;
 
-pub struct MockAir {
+pub struct MockAirBuilder {
     constraints: Vec<BabyBear>,
 }
 

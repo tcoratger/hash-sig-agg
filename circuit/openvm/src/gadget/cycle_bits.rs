@@ -106,7 +106,7 @@ impl<T: Copy, const N: usize> CycleBits<T, N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gadget::test_utils::MockAir;
+    use crate::gadget::test_utils::MockAirBuilder;
     use core::mem::MaybeUninit;
     use p3_baby_bear::BabyBear;
 
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn test_cycle_bits_eval_every_row() {
-        let mut builder = MockAir::new();
+        let mut builder = MockAirBuilder::new();
         let cycle_bits = CycleBits {
             bits: [
                 BabyBear::ONE,
@@ -185,7 +185,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Assertion failed: x should be zero")]
     fn test_cycle_bits_eval_every_row_invalid() {
-        let mut builder = MockAir::new();
+        let mut builder = MockAirBuilder::new();
         let cycle_bits = CycleBits {
             bits: [
                 BabyBear::ONE,
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_cycle_bits_eval_transition() {
-        let mut builder = MockAir::new();
+        let mut builder = MockAirBuilder::new();
         let cycle_bits = CycleBits {
             bits: [
                 BabyBear::ONE,
@@ -237,7 +237,7 @@ mod tests {
                 BabyBear::ZERO,
             ],
         };
-        let idx = cycle_bits.active_idx::<MockAir>();
+        let idx = cycle_bits.active_idx::<MockAirBuilder>();
 
         assert_eq!(
             idx,
@@ -257,7 +257,7 @@ mod tests {
                 BabyBear::ZERO,
             ],
         };
-        let active = cycle_bits.is_active::<MockAir>();
+        let active = cycle_bits.is_active::<MockAirBuilder>();
 
         assert_eq!(
             active,
@@ -269,7 +269,7 @@ mod tests {
         let cycle_bits = CycleBits {
             bits: [BabyBear::ZERO, BabyBear::ZERO],
         };
-        let active = cycle_bits.is_active::<MockAir>();
+        let active = cycle_bits.is_active::<MockAirBuilder>();
 
         assert_eq!(active, BabyBear::ZERO);
     }
@@ -285,7 +285,7 @@ mod tests {
                 BabyBear::ZERO,
             ],
         };
-        let transition = cycle_bits.is_transition::<MockAir>();
+        let transition = cycle_bits.is_transition::<MockAirBuilder>();
 
         assert_eq!(transition, BabyBear::ONE);
 
@@ -298,7 +298,7 @@ mod tests {
                 BabyBear::ONE,
             ],
         };
-        let transition = cycle_bits.is_transition::<MockAir>();
+        let transition = cycle_bits.is_transition::<MockAirBuilder>();
 
         assert_eq!(transition, BabyBear::ZERO);
     }
@@ -322,7 +322,7 @@ mod tests {
             ],
         };
 
-        let result = cycle_bits.is_last_row_to_active::<MockAir>(&next_cycle_bits);
+        let result = cycle_bits.is_last_row_to_active::<MockAirBuilder>(&next_cycle_bits);
 
         // Should be active in the last row and transition to first bit in next cycle
         assert_eq!(result, BabyBear::ONE);

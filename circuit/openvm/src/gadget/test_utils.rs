@@ -7,7 +7,7 @@ pub struct MockAirBuilder {
     constraints: Vec<BabyBear>,
 }
 
-impl MockAir {
+impl MockAirBuilder {
     pub fn new() -> Self {
         Self {
             constraints: Vec::new(),
@@ -19,29 +19,26 @@ impl MockAir {
     }
 }
 
-impl AirBuilder for MockAir {
+impl AirBuilder for MockAirBuilder {
     type Expr = BabyBear;
     type Var = BabyBear;
     type M = RowMajorMatrix<BabyBear>;
     type F = BabyBear;
 
     fn main(&self) -> Self::M {
-        RowMajorMatrix::new(
-            vec![BabyBear::new(1), BabyBear::new(2), BabyBear::new(3)],
-            3,
-        )
+        unreachable!()
     }
 
     fn is_first_row(&self) -> Self::Expr {
-        BabyBear::ZERO
+        unreachable!()
     }
 
     fn is_last_row(&self) -> Self::Expr {
-        BabyBear::ONE
+        unreachable!()
     }
 
     fn is_transition_window(&self, _size: usize) -> Self::Expr {
-        BabyBear::new(2)
+        unreachable!()
     }
 
     fn assert_zero<I: Into<Self::Expr>>(&mut self, x: I) {

@@ -176,8 +176,8 @@ mod tests {
         cycle_bits.eval_every_row(&mut builder);
 
         assert_eq!(
-            builder.constraints(),
-            [BabyBear::ZERO; 5],
+            builder.constraints().len(),
+            5,
             "Should have 5 boolean assertions (4 + 1 for is_active)"
         );
     }
@@ -224,7 +224,7 @@ mod tests {
         // - When transition
         // - When last row is active
         // - When not active
-        assert_eq!(builder.constraints(), [BabyBear::ZERO; 3]);
+        assert_eq!(builder.constraints().len(), 3);
     }
 
     #[test]

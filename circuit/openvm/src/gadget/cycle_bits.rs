@@ -7,6 +7,7 @@ use itertools::Itertools;
 use p3_air::AirBuilder;
 use p3_field::{Field, FieldAlgebra};
 
+#[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct CycleBits<T, const N: usize> {
     pub bits: [T; N],

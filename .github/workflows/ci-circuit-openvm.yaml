@@ -44,6 +44,9 @@ jobs:
           toolchain: nightly-2025-02-20
           components: rust-docs, rustfmt, clippy
 
+      - name: Override rustup version
+        run: rustup override set nightly-2025-02-20
+
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true

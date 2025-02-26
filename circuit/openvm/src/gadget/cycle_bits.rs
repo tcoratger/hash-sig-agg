@@ -68,7 +68,7 @@ impl<T: Copy, const N: usize> CycleBits<T, N> {
     }
 
     #[inline]
-    pub fn active_idx<AB: AirBuilder>(&self) -> AB::Expr
+    fn active_idx<AB: AirBuilder>(&self) -> AB::Expr
     where
         T: Into<AB::Expr>,
     {

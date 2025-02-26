@@ -41,7 +41,7 @@ jobs:
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: nightly-2025-01-16
+          toolchain: stable
           components: rust-docs, rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
@@ -52,4 +52,4 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-features --all-targets
+        run: cargo clippy +nightly-2025-01-16 --all-features --all-targets

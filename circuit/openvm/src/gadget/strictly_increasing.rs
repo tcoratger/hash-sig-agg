@@ -75,3 +75,215 @@ impl<T: Copy, const MAX_DIFF_BITS: usize> StrictlyIncreasingCols<T, MAX_DIFF_BIT
         builder.assert_eq(next.value.into(), self.value.into() + self.diff::<AB>());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gadget::test_utils::MockAirBuilder;
+    use core::mem::MaybeUninit;
+    use p3_baby_bear::BabyBear;
+
+    // Example bit size for testing
+    const MAX_DIFF_BITS: usize = 5;
+
+    #[test]
+    fn test_strictly_increasing_cols_populate_increment_1() {
+        let mut cols: StrictlyIncreasingCols<MaybeUninit<BabyBear>, MAX_DIFF_BITS> =
+            StrictlyIncreasingCols {
+                value: MaybeUninit::uninit(),
+                diff_bits: [MaybeUninit::uninit(); MAX_DIFF_BITS],
+                diff_inv: MaybeUninit::uninit(),
+            };
+
+        cols.populate(3, 4);
+
+        let expected_value = BabyBear::new(3);
+        let expected_diff_bits = [
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+        ];
+        let expected_diff_inv = BabyBear::ONE;
+
+        let actual_value = unsafe { cols.value.assume_init() };
+        let actual_diff_bits: [BabyBear; MAX_DIFF_BITS] =
+            cols.diff_bits.map(|x| unsafe { x.assume_init() });
+        let actual_diff_inv = unsafe { cols.diff_inv.assume_init() };
+
+        assert_eq!(
+            actual_value, expected_value,
+            "Value should be initialized correctly"
+        );
+        assert_eq!(
+            actual_diff_bits, expected_diff_bits,
+            "Diff bits should represent 1"
+        );
+        assert_eq!(
+            actual_diff_inv, expected_diff_inv,
+            "Diff inv should be 1 for increment of 1"
+        );
+    }
+
+    #[test]
+    fn test_strictly_increasing_cols_populate_increment_2() {
+        let mut cols: StrictlyIncreasingCols<MaybeUninit<BabyBear>, MAX_DIFF_BITS> =
+            StrictlyIncreasingCols {
+                value: MaybeUninit::uninit(),
+                diff_bits: [MaybeUninit::uninit(); MAX_DIFF_BITS],
+                diff_inv: MaybeUninit::uninit(),
+            };
+
+        cols.populate(3, 5);
+
+        let expected_value = BabyBear::new(3);
+        let expected_diff_bits = [
+            BabyBear::ZERO,
+            BabyBear::ONE,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+            BabyBear::ZERO,
+        ];
+        let expected_diff_inv = BabyBear::ONE.halve();
+
+        let actual_value = unsafe { cols.value.assume_init() };
+        let actual_diff_bits: [BabyBear; MAX_DIFF_BITS] =
+            cols.diff_bits.map(|x| unsafe { x.assume_init() });
+        let actual_diff_inv = unsafe { cols.diff_inv.assume_init() };
+
+        assert_eq!(
+            actual_value, expected_value,
+            "Value should be initialized correctly"
+        );
+        assert_eq!(
+            actual_diff_bits, expected_diff_bits,
+            "Diff bits should represent 2"
+        );
+        assert_eq!(
+            actual_diff_inv, expected_diff_inv,
+            "Diff inv should be 1/2 for increment of 2"
+        );
+    }
+
+    #[test]
+    fn test_strictly_increasing_cols_populate_no_change() {
+        let mut cols: StrictlyIncreasingCols<MaybeUninit<BabyBear>, MAX_DIFF_BITS> =
+            StrictlyIncreasingCols {
+                value: MaybeUninit::uninit(),
+                diff_bits: [MaybeUninit::uninit(); MAX_DIFF_BITS],
+                diff_inv: MaybeUninit::uninit(),
+            };
+
+        cols.populate(5, 5);
+
+        let expected_value = BabyBear::new(5);
+        let expected_diff_bits = [BabyBear::ZERO; MAX_DIFF_BITS];
+        let expected_diff_inv = BabyBear::ZERO;
+
+        let actual_value = unsafe { cols.value.assume_init() };
+        let actual_diff_bits: [BabyBear; MAX_DIFF_BITS] =
+            cols.diff_bits.map(|x| unsafe { x.assume_init() });
+        let actual_diff_inv = unsafe { cols.diff_inv.assume_init() };
+
+        assert_eq!(
+            actual_value, expected_value,
+            "Value should be initialized correctly"
+        );
+        assert_eq!(
+            actual_diff_bits, expected_diff_bits,
+            "Diff bits should be all zero for no change"
+        );
+        assert_eq!(
+            actual_diff_inv, expected_diff_inv,
+            "Diff inv should be zero for no change"
+        );
+    }
+
+    #[test]
+    fn test_strictly_increasing_cols_populate_padding() {
+        let mut cols: StrictlyIncreasingCols<MaybeUninit<BabyBear>, MAX_DIFF_BITS> =
+            StrictlyIncreasingCols {
+                value: MaybeUninit::uninit(),
+                diff_bits: [MaybeUninit::uninit(); MAX_DIFF_BITS],
+                diff_inv: MaybeUninit::uninit(),
+            };
+
+        cols.populate_padding();
+
+        let expected_value = BabyBear::ZERO;
+        let expected_diff_bits = [BabyBear::ZERO; MAX_DIFF_BITS];
+        let expected_diff_inv = BabyBear::ZERO;
+
+        let actual_value = unsafe { cols.value.assume_init() };
+        let actual_diff_bits: [BabyBear; MAX_DIFF_BITS] =
+            cols.diff_bits.map(|x| unsafe { x.assume_init() });
+        let actual_diff_inv = unsafe { cols.diff_inv.assume_init() };
+
+        assert_eq!(
+            actual_value, expected_value,
+            "Padding should set value to zero"
+        );
+        assert_eq!(
+            actual_diff_bits, expected_diff_bits,
+            "Padding should set diff_bits to zero"
+        );
+        assert_eq!(
+            actual_diff_inv, expected_diff_inv,
+            "Padding should set diff_inv to zero"
+        );
+    }
+
+    #[test]
+    fn test_strictly_increasing_cols_eval_transition() {
+        let mut builder = MockAirBuilder::new();
+        let cols: StrictlyIncreasingCols<BabyBear, MAX_DIFF_BITS> = StrictlyIncreasingCols {
+            value: BabyBear::new(3),
+            diff_bits: [
+                BabyBear::ONE,
+                BabyBear::ZERO,
+                BabyBear::ZERO,
+                BabyBear::ZERO,
+                BabyBear::ZERO,
+            ],
+            diff_inv: BabyBear::ONE,
+        };
+        let next_cols = StrictlyIncreasingCols {
+            value: BabyBear::new(4),
+            diff_bits: [BabyBear::ZERO; MAX_DIFF_BITS],
+            diff_inv: BabyBear::ZERO,
+        };
+
+        cols.eval_transition(&mut builder, &next_cols);
+
+        assert_eq!(
+            builder.constraints().len(),
+            2,
+            "Should generate two constraints for transition"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Assertion failed: x should be zero")]
+    fn test_strictly_increasing_cols_eval_transition_invalid() {
+        let mut builder = MockAirBuilder::new();
+        let cols: StrictlyIncreasingCols<BabyBear, MAX_DIFF_BITS> = StrictlyIncreasingCols {
+            value: BabyBear::new(3),
+            diff_bits: [
+                BabyBear::ONE,
+                BabyBear::ZERO,
+                BabyBear::ZERO,
+                BabyBear::ZERO,
+                BabyBear::ZERO,
+            ],
+            diff_inv: BabyBear::ONE,
+        };
+        let next_cols = StrictlyIncreasingCols {
+            value: BabyBear::new(5), // Incorrect: should be value + diff
+            diff_bits: [BabyBear::ZERO; MAX_DIFF_BITS],
+            diff_inv: BabyBear::ZERO,
+        };
+
+        cols.eval_transition(&mut builder, &next_cols);
+    }
+}
